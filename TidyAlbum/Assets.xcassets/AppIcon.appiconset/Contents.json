@@ -1,6 +1,7 @@
 {
   "images" : [
     {
+      "filename" : "5f7db95030a4d279cb42792d248e79ba_OrbStack.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -12,6 +13,7 @@
           "value" : "dark"
         }
       ],
+      "filename" : "5f7db95030a4d279cb42792d248e79ba_OrbStack 1.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
