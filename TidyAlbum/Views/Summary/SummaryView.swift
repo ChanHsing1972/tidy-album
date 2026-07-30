@@ -7,6 +7,7 @@ struct SummaryView: View {
     // MARK: 依赖
 
     @ObservedObject var manager: PhotoManager
+    @ObservedObject var settings: SettingsStore
 
     // MARK: 回调
 
@@ -50,11 +51,11 @@ struct SummaryView: View {
 
     private var completionTitle: some View {
         VStack(spacing: 10) {
-            Text("Session Complete")
+            Text(settings.t("Session Complete"))
                 .font(DesignTokens.Typography.largeTitle)
                 .foregroundColor(DesignTokens.Colors.textPrimary)
 
-            Text("You've cleaned up your album!")
+            Text(settings.t("You've cleaned up your album!"))
                 .font(.body)
                 .foregroundColor(DesignTokens.Colors.textSecondary)
         }
@@ -68,7 +69,7 @@ struct SummaryView: View {
                 Text("\(manager.analytics.statistics.cleanedCount)")
                     .font(DesignTokens.Typography.displayNumber)
                     .foregroundColor(DesignTokens.Colors.accentRed)
-                Text("Deleted")
+                Text(settings.t("Deleted"))
                     .font(DesignTokens.Typography.caption)
                     .foregroundColor(DesignTokens.Colors.textSecondary)
             }
@@ -77,7 +78,7 @@ struct SummaryView: View {
                 Text("\(manager.trashBin.count)")
                     .font(DesignTokens.Typography.displayNumber)
                     .foregroundColor(DesignTokens.Colors.textPrimary)
-                Text("In Trash")
+                Text(settings.t("In Trash"))
                     .font(DesignTokens.Typography.caption)
                     .foregroundColor(DesignTokens.Colors.textSecondary)
             }
@@ -91,7 +92,7 @@ struct SummaryView: View {
 
     private var homeButton: some View {
         Button(action: onHome) {
-            Text("Back to Home")
+            Text(settings.t("Back to Home"))
                 .font(.headline)
                 .foregroundColor(DesignTokens.Colors.textOnPrimary)
                 .frame(maxWidth: .infinity)

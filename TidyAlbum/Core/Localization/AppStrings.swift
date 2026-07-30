@@ -40,7 +40,9 @@ enum AppStrings {
         "Limited Library": "有限照片访问", "Manage Access": "管理访问", "Photo Access Required": "需要照片访问权限",
         "TidyAlbum needs access to help you review and clean your library.": "TidyAlbum 需要访问照片，才能帮助你浏览和整理图库。",
         "Open Settings": "打开设置", "Items": "项", "Today": "今天", "This Week": "本周",
-        "All processing stays on this iPhone or iPad.": "所有处理均保留在这台 iPhone 或 iPad 上。"
+        "All processing stays on this iPhone or iPad.": "所有处理均保留在这台 iPhone 或 iPad 上。",
+        "Session Complete": "清理完成", "You've cleaned up your album!": "你已整理过相册！",
+        "Deleted": "已删除", "In Trash": "待删除", "Back to Home": "返回首页"
     ]
 }
 

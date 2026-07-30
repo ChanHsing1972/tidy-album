@@ -10,6 +10,7 @@ struct CleanHomeView: View {
 
     @State private var showsCleaning = false
     @State private var showsTrash = false
+    @State private var showsSummary = false
 
     var body: some View {
         NavigationStack {
@@ -34,10 +35,15 @@ struct CleanHomeView: View {
             }
         }
         .fullScreenCover(isPresented: $showsCleaning) {
-            CleaningView(manager: manager, settings: settings)
+            CleaningView(manager: manager, settings: settings, onFinish: {
+                showsSummary = true
+            })
         }
         .sheet(isPresented: $showsTrash) {
             TrashView(manager: manager, settings: settings)
+        }
+        .sheet(isPresented: $showsSummary) {
+            SummaryView(manager: manager, settings: settings, onHome: { showsSummary = false })
         }
     }
 

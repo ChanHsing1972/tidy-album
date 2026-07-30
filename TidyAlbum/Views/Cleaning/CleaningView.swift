@@ -9,6 +9,9 @@ struct CleaningView: View {
     @ObservedObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
 
+    /// 当用户完成全部照片浏览后触发，用于父视图展示摘要页面
+    var onFinish: (() -> Void)?
+
     @State private var index = 0
     @State private var offset: CGSize = .zero
     @State private var isDragging = false
@@ -146,20 +149,8 @@ struct CleaningView: View {
         let isDown = offset.height > 0 && abs(offset.height) > abs(offset.width)
         let progress = min(abs(offset.height) / 150, 1)
         return ZStack {
-            Image(systemName: "trash.fill")
-                .font(.system(size: 42, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(22)
-                .background(.red, in: Circle())
-                .scaleEffect(0.72 + progress * 0.38)
-                .opacity(isUp ? progress : 0)
-            Image(systemName: "heart.fill")
-                .font(.system(size: 42, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(22)
-                .background(.pink, in: Circle())
-                .scaleEffect(0.72 + progress * 0.38)
-                .opacity(isDown ? progress : 0)
+            IconOverlayView(icon: "trash.fill", color: .red, progress: isUp ? progress : 0)
+            IconOverlayView(icon: "heart.fill", color: .pink, progress: isDown ? progress : 0)
         }
         .animation(.easeOut(duration: 0.12), value: isUp)
         .animation(.easeOut(duration: 0.12), value: isDown)
@@ -293,5 +284,11 @@ struct CleaningView: View {
             systemImage: "checkmark.circle.fill",
             description: Text(settings.t("You reviewed every item in this session."))
         )
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                dismiss()
+                onFinish?()
+            }
+        }
     }
 }
