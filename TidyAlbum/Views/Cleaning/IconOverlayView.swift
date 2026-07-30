@@ -1,33 +1,19 @@
 import SwiftUI
 
-// MARK: - 拖拽叠加图标组件
-/// 在卡片拖拽时显示的操作提示图标（删除、收藏、跳过）。
-/// 透明度随拖拽距离动态变化。
+// MARK: - Action Overlay
+
 struct IconOverlayView: View {
-
-    // MARK: 属性
-
-    /// SF Symbol 图标名称
     let icon: String
-    /// 叠加层主题色
     let color: Color
-    /// 操作文字标签
-    let text: String
-
-    // MARK: - Body
+    let progress: CGFloat
 
     var body: some View {
-        VStack {
-            Image(systemName: icon)
-                .font(DesignTokens.Typography.overlayIcon)
-                .foregroundColor(DesignTokens.Colors.textPrimary)
-            Text(text)
-                .font(.headline)
-                .foregroundColor(DesignTokens.Colors.textPrimary)
-        }
-        .padding(DesignTokens.Spacing.section)
-        .background(color.opacity(DesignTokens.Opacity.overlayBackground))
-        .clipShape(Circle())
-        .shadow(radius: 10)
+        Image(systemName: icon)
+            .font(.system(size: 42, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(22)
+            .background(color, in: Circle())
+            .scaleEffect(0.72 + progress * 0.38)
+            .opacity(progress)
     }
 }

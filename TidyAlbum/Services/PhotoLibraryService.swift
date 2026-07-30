@@ -84,14 +84,10 @@ final class PhotoLibraryService: PhotoLibraryServiceProtocol {
         }
     }
 
-    func toggleFavorite(for asset: PHAsset) {
-        PHPhotoLibrary.shared().performChanges {
+    func setFavorite(_ isFavorite: Bool, for asset: PHAsset) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
             let request = PHAssetChangeRequest(for: asset)
-            request.isFavorite = !asset.isFavorite
-        } completionHandler: { success, error in
-            if !success, let error {
-                print("[PhotoLibraryService] 切换收藏状态失败: \(error.localizedDescription)")
-            }
+            request.isFavorite = isFavorite
         }
     }
 

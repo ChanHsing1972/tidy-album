@@ -1,0 +1,101 @@
+import CoreLocation
+import MapKit
+import Photos
+import SwiftUI
+
+// MARK: - Asset Details Sheet
+
+struct AssetDetailsView: View {
+    let asset: PHAsset
+    @ObservedObject var settings: SettingsStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var metadata: AssetMetadata?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let metadata {
+                    detailsContent(metadata)
+                } else {
+                    ProgressView(settings.t("Loading details…"))
+                }
+            }
+            .navigationTitle(settings.t("Photo Details"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(settings.t("Done")) { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .task {
+            metadata = await AssetMetadataService().load(for: asset)
+        }
+    }
+
+    private func detailsContent(_ metadata: AssetMetadata) -> some View {
+        List {
+            Section {
+                HStack(spacing: 14) {
+                    AssetMediaView(asset: asset, contentMode: .fill, showsVideoBadge: false)
+                        .frame(width: 72, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(metadata.fileName)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text(asset.mediaType == .video ? settings.t("Video") : settings.t("Photo"))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Section(settings.t("File")) {
+                detailRow(settings.t("File Size"), value: ByteCountFormatter.string(fromByteCount: metadata.fileSize, countStyle: .file))
+                detailRow(settings.t("Format"), value: metadata.uniformType)
+                detailRow(settings.t("Dimensions"), value: "\(metadata.pixelWidth) × \(metadata.pixelHeight)")
+                if let date = metadata.creationDate {
+                    detailRow(settings.t("Captured"), value: date.formatted(date: .complete, time: .shortened))
+                }
+            }
+            if metadata.deviceModel != nil || metadata.lensModel != nil {
+                Section(settings.t("Camera")) {
+                    if let value = metadata.deviceModel { detailRow(settings.t("Device"), value: value) }
+                    if let value = metadata.lensModel { detailRow(settings.t("Lens"), value: value) }
+                    if let value = metadata.aperture { detailRow(settings.t("Aperture"), value: String(format: "ƒ/%.1f", value)) }
+                    if let value = metadata.exposureTime { detailRow(settings.t("Exposure"), value: String(format: "1/%.0f s", 1 / value)) }
+                    if let value = metadata.iso { detailRow(settings.t("ISO"), value: "ISO \(value)") }
+                    if let value = metadata.focalLength { detailRow(settings.t("Focal Length"), value: String(format: "%.0f mm", value)) }
+                }
+            }
+            Section(settings.t("Location")) {
+                if let location = metadata.location {
+                    locationMap(location)
+                        .frame(height: 180)
+                        .listRowInsets(EdgeInsets())
+                } else {
+                    Label(settings.t("No location data"), systemImage: "location.slash")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    private func detailRow(_ title: String, value: String) -> some View {
+        LabeledContent(title, value: value)
+    }
+
+    private func locationMap(_ location: CLLocation) -> some View {
+        let coordinate = location.coordinate
+        return Map(initialPosition: .region(MKCoordinateRegion(
+            center: coordinate,
+            latitudinalMeters: 900,
+            longitudinalMeters: 900
+        ))) {
+            Marker(settings.t("Captured"), coordinate: coordinate)
+        }
+        .mapStyle(.standard(elevation: .realistic))
+    }
+}

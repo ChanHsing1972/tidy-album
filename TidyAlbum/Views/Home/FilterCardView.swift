@@ -9,6 +9,7 @@ struct FilterCardView: View {
 
     /// 筛选条件
     let filter: PhotoFilter
+    let title: String
     /// 是否为当前选中状态
     let isSelected: Bool
     /// 点击回调
@@ -21,28 +22,23 @@ struct FilterCardView: View {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.standard) {
                 Image(systemName: filter.icon)
                     .font(DesignTokens.Typography.cardIcon)
-                    .foregroundColor(isSelected ? DesignTokens.Colors.textOnPrimary : DesignTokens.Colors.textPrimary)
+                    .foregroundColor(isSelected ? Color.accentColor : .primary)
 
-                Text(filter.rawValue)
+                Text(title)
                     .font(DesignTokens.Typography.body)
-                    .foregroundColor(isSelected ? DesignTokens.Colors.textOnPrimary : DesignTokens.Colors.textPrimary)
+                    .foregroundColor(.primary)
             }
             .padding(DesignTokens.Spacing.large)
-            .frame(
-                width: DesignTokens.Dimensions.filterCardWidth,
-                height: DesignTokens.Dimensions.filterCardHeight
-            )
+            .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
             .background(
-                isSelected
-                    ? DesignTokens.Colors.textPrimary
-                    : DesignTokens.Colors.textPrimary.opacity(DesignTokens.Opacity.divider)
+                isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: .secondarySystemGroupedBackground)
             )
             .cornerRadius(DesignTokens.CornerRadius.large)
             .overlay(
                 RoundedRectangle(cornerRadius: DesignTokens.CornerRadius.large)
                     .stroke(
-                        DesignTokens.Colors.textPrimary.opacity(DesignTokens.Opacity.cardBorder),
-                        lineWidth: 1
+                        isSelected ? Color.accentColor : Color.clear,
+                        lineWidth: 1.5
                     )
             )
         }

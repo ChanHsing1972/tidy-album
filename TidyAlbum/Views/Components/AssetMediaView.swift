@@ -1,147 +1,72 @@
-import SwiftUI
 import Photos
-import AVKit
+import SwiftUI
 
-// MARK: - 媒体资源展示组件
-/// 通用的照片/视频预览组件，支持异步加载和自动播放。
-/// 可被卡片视图、网格视图、垃圾桶视图等多处复用。
+// MARK: - Cached Asset Media View
+
 struct AssetMediaView: View {
-
-    // MARK: 属性
-
-    /// 待展示的照片资源
     let asset: PHAsset
-
-    // MARK: 状态
+    var contentMode: ContentMode = .fit
+    var showsVideoBadge = true
 
     @State private var image: UIImage?
-    @State private var player: AVPlayer?
+    @State private var requestID: PHImageRequestID?
     @Environment(\.displayScale) private var displayScale
 
-    // MARK: - Body
-
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { proxy in
             ZStack {
-                DesignTokens.Colors.cardBackground
+                Color(uiColor: .secondarySystemBackground)
 
-                if asset.mediaType == .video {
-                    videoContent
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: contentMode)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    imageContent(in: geometry)
+                    Image(systemName: asset.mediaType == .video ? "video.fill" : "photo.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(.tertiary)
+                        .symbolEffect(.pulse, options: .repeating.speed(0.35))
+                }
+
+                if showsVideoBadge && asset.mediaType == .video {
+                    Image(systemName: "play.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(14)
+                        .background(.thinMaterial, in: Circle())
                 }
             }
-            .onAppear {
-                loadMedia(targetSize: geometry.size)
+            .clipped()
+            .task(id: requestKey(size: proxy.size)) {
+                load(size: proxy.size)
             }
-            .onChange(of: asset.localIdentifier) { _, _ in
-                resetAndReload(targetSize: geometry.size)
-            }
-        }
-    }
-
-    // MARK: - 视频内容 (Video Content)
-
-    @ViewBuilder
-    private var videoContent: some View {
-        if let player {
-            VideoPlayer(player: player)
-                .disabled(true)
-                .onAppear {
-                    player.play()
-                    player.isMuted = true
-                    setupVideoLoop(for: player)
-                }
-                .onDisappear {
-                    player.pause()
-                }
-        } else {
-            ProgressView()
-        }
-    }
-
-    // MARK: - 图片内容 (Image Content)
-
-    @ViewBuilder
-    private func imageContent(in geometry: GeometryProxy) -> some View {
-        if let image {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .transition(.opacity.animation(AnimationPresets.imageFadeIn))
-        } else {
-            ProgressView()
-        }
-    }
-
-    // MARK: - 媒体加载 (Media Loading)
-
-    /// 重置状态并重新加载媒体
-    private func resetAndReload(targetSize: CGSize) {
-        image = nil
-        player = nil
-        loadMedia(targetSize: targetSize)
-    }
-
-    /// 根据资源类型异步加载图片或视频
-    private func loadMedia(targetSize: CGSize) {
-        if asset.mediaType == .video {
-            loadVideo()
-        } else {
-            loadImage(targetSize: targetSize)
-        }
-    }
-
-    private func loadVideo() {
-        let options = PHVideoRequestOptions()
-        options.isNetworkAccessAllowed = true
-        options.deliveryMode = .highQualityFormat
-
-        PHImageManager.default().requestPlayerItem(forVideo: asset, options: options) { item, _ in
-            guard let item else { return }
-            DispatchQueue.main.async {
-                self.player = AVPlayer(playerItem: item)
+            .onDisappear {
+                AssetImagePipeline.shared.cancel(requestID)
             }
         }
     }
 
-    private func loadImage(targetSize: CGSize) {
-        let manager = PHImageManager.default()
-        let options = PHImageRequestOptions()
-        options.isSynchronous = false
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
+    // MARK: Image Loading
 
-        let scaledSize = CGSize(
-            width: targetSize.width * displayScale,
-            height: targetSize.height * displayScale
-        )
+    private func requestKey(size: CGSize) -> String {
+        "\(asset.localIdentifier)-\(Int(size.width))-\(Int(size.height))"
+    }
 
-        manager.requestImage(
+    private func load(size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        let targetSize = CGSize(width: size.width * displayScale, height: size.height * displayScale)
+        if let cached = AssetImagePipeline.shared.cachedImage(for: asset, targetSize: targetSize) {
+            image = cached
+            return
+        }
+
+        requestID = AssetImagePipeline.shared.requestImage(
             for: asset,
-            targetSize: scaledSize,
-            contentMode: .aspectFit,
-            options: options
-        ) { result, _ in
-            guard let result else { return }
-            withAnimation(AnimationPresets.imageFadeIn) {
-                self.image = result
-            }
-        }
-    }
-
-    // MARK: - 视频循环 (Video Loop)
-
-    /// 设置视频循环播放
-    private func setupVideoLoop(for player: AVPlayer) {
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem,
-            queue: .main
-        ) { _ in
-            player.seek(to: .zero)
-            player.play()
+            targetSize: targetSize,
+            contentMode: contentMode == .fill ? .aspectFill : .aspectFit
+        ) { loadedImage in
+            image = loadedImage
         }
     }
 }

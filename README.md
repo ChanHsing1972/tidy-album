@@ -1,17 +1,26 @@
 # TidyAlbum
 
-TidyAlbum 是一款运行在 iOS 上的相册清理工具，使用 SwiftUI 构建，旨在帮助用户快速清理照片，保持相册整洁。用户只需左滑、右滑、上滑照片，即可轻松实现删除、保留或喜爱操作，界面优雅、响应迅速。
+TidyAlbum 是一款基于 SwiftUI、PhotoKit 和 Swift Charts 的本地相册清理工具。所有照片、视频和元数据处理均在设备上完成。
 
-## 要求
+## MVVM 目录结构
 
-- Xcode 13 或更高
-- iOS 15 或更高（或与目标 Xcode 版本兼容的 iOS 版本）
-- Swift 5
+```text
+TidyAlbum/
+├── App/                         App 入口
+├── Core/Theme/                  设计令牌与动画参数
+├── Core/Localization/           应用内中英文文案
+├── Models/                      设置、筛选、统计与元数据模型
+├── Services/                    PhotoKit、图片缓存、元数据服务
+├── ViewModels/                  PhotoManager 会话状态与操作历史
+└── Views/
+    ├── ContentView.swift        原生 TabView 根导航
+    ├── Home/                    清理首页与筛选入口
+    ├── Cleaning/                手势浏览卡片与操作反馈
+    ├── Trash/                   待删除队列与系统确认
+    ├── Details/                 EXIF、文件信息与位置地图
+    ├── Analytics/               Swift Charts 成就看板
+    ├── Settings/                原生 Form 设置页
+    └── Components/              共享媒体展示组件
+```
 
-## 项目结构
-
-- `TidyAlbum/` — 应用主代码
-	- `ContentView.swift` — 主界面
-	- `PhotoManager.swift` — 照片访问与处理逻辑
-	- `PhotoView.swift` — 照片预览组件
-	- `TidyAlbumApp.swift` — App 入口
+应用需要 iOS 18.6 或更高版本，工程会通过 Xcode 的文件系统同步组自动收录新增 Swift 文件。

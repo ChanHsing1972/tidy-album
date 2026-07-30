@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - 照片筛选条件模型
 /// 定义相册清理支持的筛选模式。
 /// 每个 case 关联对应的 SF Symbol 图标和本地化标题。
-enum PhotoFilter: String, CaseIterable, Identifiable {
+enum PhotoFilter: String, CaseIterable, Identifiable, Equatable {
     /// 全部照片与视频
     case all = "全部照片"
     /// 截屏

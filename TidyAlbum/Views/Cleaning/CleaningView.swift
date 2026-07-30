@@ -1,366 +1,297 @@
-import SwiftUI
 import Photos
+import SwiftUI
+import UIKit
 
-// MARK: - 清理界面视图 (Cleaning View)
-/// 类 Tinder 卡片堆叠交互界面，支持上滑删除、下滑收藏、左右滑动跳过。
-/// 是 App 的核心交互页面。
+// MARK: - Cleaning Session
+
 struct CleaningView: View {
-
-    // MARK: 依赖
-
     @ObservedObject var manager: PhotoManager
+    @ObservedObject var settings: SettingsStore
+    @Environment(\.dismiss) private var dismiss
 
-    // MARK: 回调
-
-    /// 完成所有照片清理后的回调
-    var onFinish: () -> Void
-    /// 返回首页的回调
-    var onBack: () -> Void
-    /// 打开垃圾桶的回调
-    var onShowTrash: () -> Void
-
-    // MARK: 状态
-
-    @State private var currentIndex = 0
+    @State private var index = 0
     @State private var offset: CGSize = .zero
     @State private var isDragging = false
+    @State private var thresholdHapticSent = false
+    @State private var detailsAsset: PHAsset?
+    @State private var showsDetails = false
+    @State private var showsTrash = false
 
-    /// 触觉反馈生成器
-    private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+    private let swipeThreshold: CGFloat = 96
+    private let flyDistance: CGFloat = 900
+    private let spring = Animation.spring(response: 0.35, dampingFraction: 0.7)
 
-    // MARK: - 计算属性
-
-    /// 拖拽进度 (0.0 ~ 1.0)，用于驱动叠加图标的透明度
-    private var dragProgress: Double {
-        let distance = sqrt(pow(offset.width, 2) + pow(offset.height, 2))
-        return min(Double(distance / AnimationPresets.overlayMaxDistance), 1.0)
+    private var currentAsset: PHAsset? {
+        guard manager.sessionAssets.indices.contains(index) else { return nil }
+        return manager.sessionAssets[index]
     }
-
-    /// 当前拖拽的主导方向
-    private var dominantDirection: DragDirection {
-        if offset == .zero { return .none }
-        if abs(offset.height) > abs(offset.width) {
-            return offset.height < 0 ? .up : .down
-        } else {
-            return offset.width < 0 ? .left : .right
-        }
-    }
-
-    // MARK: - Body
 
     var body: some View {
-        ZStack {
-            backgroundBlur
-            VStack {
-                topBar
-                Spacer()
-                cardStack
-                Spacer()
-                bottomControls
+        NavigationStack {
+            ZStack {
+                background
+                if manager.sessionAssets.isEmpty {
+                    emptyState
+                } else if currentAsset == nil {
+                    finishedState
+                } else {
+                    reviewSurface
+                }
             }
+            .navigationTitle(settings.t("Clean"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbar }
+            .safeAreaInset(edge: .bottom) { bottomBar }
+        }
+        .sheet(isPresented: $showsDetails) {
+            if let detailsAsset {
+                AssetDetailsView(asset: detailsAsset, settings: settings)
+            }
+        }
+        .sheet(isPresented: $showsTrash) {
+            TrashView(manager: manager, settings: settings)
+        }
+        .alert(
+            settings.t("Delete Failed"),
+            isPresented: Binding(
+                get: { manager.deletionError != nil },
+                set: { if !$0 { manager.clearDeletionError() } }
+            )
+        ) {
+            Button(settings.t("Done"), role: .cancel) { manager.clearDeletionError() }
+        } message: {
+            Text(manager.deletionError?.localizedDescription ?? settings.t("Try again from the pending deletion queue."))
+        }
+        .onAppear {
+            index = 0
+            manager.preheat(around: index)
+            if let asset = currentAsset { manager.recordViewed(asset) }
         }
     }
 
-    // MARK: - 背景模糊 (Background Blur)
+    // MARK: Background and Toolbar
 
-    @ViewBuilder
-    private var backgroundBlur: some View {
-        if currentIndex < manager.assets.count {
-            AssetMediaView(asset: manager.assets[currentIndex])
-                .blur(radius: 50)
-                .opacity(DesignTokens.Opacity.blurredBackground)
+    @ViewBuilder private var background: some View {
+        if let asset = currentAsset {
+            AssetMediaView(asset: asset, contentMode: .fill, showsVideoBadge: false)
+                .blur(radius: 44)
+                .opacity(0.2)
                 .ignoresSafeArea()
-        }
-    }
-
-    // MARK: - 顶部栏 (Top Bar)
-
-    @ViewBuilder
-    private var topBar: some View {
-        if currentIndex < manager.assets.count {
-            HStack {
-                Button(action: onBack) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: DesignTokens.FontSize.button, weight: .bold))
-                        .foregroundColor(DesignTokens.Colors.textPrimary)
-                        .padding(DesignTokens.Spacing.standard)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
-                }
-
-                Spacer()
-
-                Text("\(currentIndex + 1) / \(manager.assets.count)")
-                    .font(DesignTokens.Typography.monospacedFont(size: DesignTokens.FontSize.body))
-                    .foregroundColor(DesignTokens.Colors.textMuted)
-                    .padding(.horizontal, DesignTokens.Spacing.standard)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(DesignTokens.CornerRadius.small)
-
-                Spacer()
-
-                Button(action: onShowTrash) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "trash.fill")
-                        Text("\(manager.trashBin.count)")
-                    }
-                    .font(.system(size: DesignTokens.FontSize.body, weight: .bold))
-                    .foregroundColor(DesignTokens.Colors.textPrimary)
-                    .padding(.horizontal, DesignTokens.Spacing.standard)
-                    .padding(.vertical, DesignTokens.Spacing.compact)
-                    .background(
-                        manager.trashBin.isEmpty
-                            ? DesignTokens.Colors.textPrimary.opacity(DesignTokens.Opacity.materialBackground)
-                            : DesignTokens.Colors.accentRed
-                    )
-                    .cornerRadius(DesignTokens.Spacing.large)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.top, 10)
-        }
-    }
-
-    // MARK: - 卡片堆叠 (Card Stack)
-
-    private var cardStack: some View {
-        ZStack {
-            if manager.assets.isEmpty {
-                emptyFilterView
-            } else if currentIndex >= manager.assets.count {
-                allCaughtUpView
-            } else {
-                nextCardPreview
-                currentCard
-            }
-        }
-        .padding(.horizontal, DesignTokens.Spacing.relaxed)
-        .frame(maxHeight: DesignTokens.Dimensions.cardStackMaxHeight)
-    }
-
-    // MARK: 空筛选视图
-
-    private var emptyFilterView: some View {
-        VStack(spacing: DesignTokens.Spacing.large) {
-            Text("No photos in this filter")
-                .foregroundColor(DesignTokens.Colors.textPrimary)
-            Button("Back to Home", action: onBack)
-                .padding()
-                .background(DesignTokens.Colors.textPrimary)
-                .foregroundColor(DesignTokens.Colors.textOnPrimary)
-                .cornerRadius(DesignTokens.CornerRadius.medium)
-        }
-    }
-
-    // MARK: 全部完成视图
-
-    private var allCaughtUpView: some View {
-        VStack(spacing: DesignTokens.Spacing.large) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(DesignTokens.Typography.completeIcon)
-                .foregroundStyle(DesignTokens.Colors.gradientComplete)
-
-            Text("All Caught Up!")
-                .font(.title2)
-                .foregroundColor(DesignTokens.Colors.textPrimary)
-
-            Button("Finish Review", action: onFinish)
-                .padding()
-                .background(DesignTokens.Colors.textPrimary)
-                .foregroundColor(DesignTokens.Colors.textOnPrimary)
-                .cornerRadius(DesignTokens.CornerRadius.medium)
-        }
-    }
-
-    // MARK: 下一张卡片预览
-
-    @ViewBuilder
-    private var nextCardPreview: some View {
-        if currentIndex + 1 < manager.assets.count {
-            CardView(asset: manager.assets[currentIndex + 1], manager: manager)
-                .scaleEffect(
-                    AnimationPresets.nextCardBaseScale + (AnimationPresets.nextCardScaleRange * dragProgress)
-                )
-                .offset(y: AnimationPresets.nextCardBaseOffsetY * (1.0 - dragProgress))
-                .opacity(
-                    DesignTokens.Opacity.nextCardPreview + (DesignTokens.Opacity.gradientMid * dragProgress)
-                )
-                .zIndex(0)
-                .id(manager.assets[currentIndex + 1].localIdentifier)
-        }
-    }
-
-    // MARK: 当前卡片
-
-    private var currentCard: some View {
-        CardView(asset: manager.assets[currentIndex], manager: manager)
-            .offset(offset)
-            .rotationEffect(.degrees(Double(offset.width / AnimationPresets.cardRotationFactor)))
-            .scaleEffect(isDragging ? AnimationPresets.draggingCardScale : 1.0)
-            .gesture(dragGesture)
-            .overlay(dragOverlayIcons)
-            .zIndex(1)
-            .id(manager.assets[currentIndex].localIdentifier)
-    }
-
-    // MARK: - 拖拽手势 (Drag Gesture)
-
-    private var dragGesture: some Gesture {
-        DragGesture()
-            .onChanged { gesture in
-                isDragging = true
-                offset = gesture.translation
-            }
-            .onEnded { gesture in
-                isDragging = false
-                handleSwipe(translation: gesture.translation)
-            }
-    }
-
-    // MARK: - 拖拽叠加图标 (Drag Overlay Icons)
-
-    private var dragOverlayIcons: some View {
-        let currentAsset = manager.assets[currentIndex]
-        let isFavorite = currentAsset.isFavorite
-
-        return ZStack {
-            // 上滑 → 删除
-            IconOverlayView(icon: "trash.fill", color: DesignTokens.Colors.accentRed, text: "DELETE")
-                .offset(y: 50)
-                .opacity(
-                    dominantDirection == .up
-                        ? min(Double(-offset.height) / AnimationPresets.overlayMaxDistance, 1.0)
-                        : 0
-                )
-
-            // 下滑 → 收藏/取消收藏
-            IconOverlayView(
-                icon: isFavorite ? "heart.slash.fill" : "heart.fill",
-                color: DesignTokens.Colors.accentPink,
-                text: isFavorite ? "UNFAVORITE" : "FAVORITE"
-            )
-            .offset(y: -50)
-            .opacity(
-                dominantDirection == .down
-                    ? min(Double(offset.height) / AnimationPresets.overlayMaxDistance, 1.0)
-                    : 0
-            )
-
-            // 左右滑 → 跳过
-            IconOverlayView(icon: "arrow.right", color: DesignTokens.Colors.accentBlue, text: "SKIP")
-                .opacity(
-                    (dominantDirection == .left || dominantDirection == .right)
-                        ? min(Double(abs(offset.width)) / AnimationPresets.overlayMaxDistance, 1.0)
-                        : 0
-                )
-        }
-        .animation(AnimationPresets.overlayIconSwitch, value: dominantDirection)
-    }
-
-    // MARK: - 底部控制栏 (Bottom Controls)
-
-    @ViewBuilder
-    private var bottomControls: some View {
-        if currentIndex < manager.assets.count {
-            HStack(spacing: DesignTokens.Spacing.extraLarge) {
-                ControlButtonView(
-                    icon: "arrow.uturn.backward",
-                    color: DesignTokens.Colors.accentYellow,
-                    action: undoCurrentPhoto,
-                    isDisabled: currentIndex == 0
-                )
-
-                ControlButtonView(
-                    icon: "trash",
-                    color: DesignTokens.Colors.accentRed
-                ) {
-                    handleSwipe(translation: CGSize(width: 0, height: -AnimationPresets.flyOutDistance))
-                }
-
-                ControlButtonView(
-                    icon: "heart",
-                    color: DesignTokens.Colors.accentPink
-                ) {
-                    handleSwipe(translation: CGSize(width: 0, height: AnimationPresets.flyOutDistance))
-                }
-            }
-            .padding(.bottom, DesignTokens.Dimensions.bottomControlPadding)
-        }
-    }
-
-    // MARK: - 手势处理 (Swipe Handling)
-
-    /// 根据拖拽位移判断操作类型并执行动画
-    private func handleSwipe(translation: CGSize) {
-        let threshold = AnimationPresets.swipeThreshold
-        let currentAsset = manager.assets[currentIndex]
-
-        if translation.height < -threshold {
-            // 上滑 → 删除
-            impactFeedback.impactOccurred()
-            flyOutCard(direction: CGSize(width: 0, height: -AnimationPresets.flyOutDistance)) {
-                manager.addToTrash(asset: currentAsset)
-                advanceToNextPhoto()
-            }
-        } else if translation.height > threshold {
-            // 下滑 → 收藏/取消收藏
-            impactFeedback.impactOccurred()
-            flyOutCard(direction: CGSize(width: 0, height: AnimationPresets.flyOutDistance)) {
-                manager.toggleFavorite(asset: currentAsset)
-                advanceToNextPhoto()
-            }
-        } else if abs(translation.width) > threshold {
-            // 左右滑 → 跳过
-            let xDirection: CGFloat = translation.width > 0
-                ? AnimationPresets.flyOutDistance
-                : -AnimationPresets.flyOutDistance
-            flyOutCard(direction: CGSize(width: xDirection, height: 0)) {
-                advanceToNextPhoto()
-            }
         } else {
-            // 回弹
-            withAnimation(AnimationPresets.cardFlyOut) {
-                offset = .zero
+            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+        }
+    }
+
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+            }
+            .accessibilityLabel(settings.t("Close"))
+        }
+        ToolbarItem(placement: .principal) {
+            if !manager.sessionAssets.isEmpty {
+                VStack(spacing: 3) {
+                    Text("\(min(index + 1, manager.sessionAssets.count)) / \(manager.sessionAssets.count)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                    ProgressView(value: Double(min(index, manager.sessionAssets.count)), total: Double(manager.sessionAssets.count))
+                        .frame(width: 108)
+                        .tint(.blue)
+                }
+                .accessibilityElement(children: .combine)
             }
         }
-    }
-
-    /// 回退到上一张照片
-    private func undoCurrentPhoto() {
-        guard currentIndex > 0 else { return }
-        withAnimation {
-            currentIndex -= 1
-            offset = .zero
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { showsTrash = true } label: {
+                Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+            }
+            .badge(manager.trashBin.count)
+            .accessibilityLabel(settings.t("Trash"))
         }
     }
 
-    /// 推进到下一张照片
-    private func advanceToNextPhoto() {
-        currentIndex += 1
+    // MARK: Review Surface
+
+    private var reviewSurface: some View {
+        GeometryReader { proxy in
+            ZStack {
+                if index + 1 < manager.sessionAssets.count {
+                    CardView(asset: manager.sessionAssets[index + 1])
+                        .scaleEffect(0.94 + min(verticalProgress * 0.04, 0.04))
+                        .offset(y: 18 - min(verticalProgress * 18, 18))
+                        .opacity(0.72 + min(verticalProgress * 0.28, 0.28))
+                }
+                if let asset = currentAsset {
+                    CardView(asset: asset)
+                        .offset(offset)
+                        .rotationEffect(.degrees(Double(offset.width / 22)))
+                        .scaleEffect(isDragging ? 0.98 : 1)
+                        .overlay(actionOverlay)
+                        .gesture(dragGesture(container: proxy.size))
+                        .id(asset.localIdentifier)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+        }
+    }
+
+    private var verticalProgress: CGFloat {
+        min(abs(offset.height) / 180, 1)
+    }
+
+    private var actionOverlay: some View {
+        let isUp = offset.height < 0 && abs(offset.height) > abs(offset.width)
+        let isDown = offset.height > 0 && abs(offset.height) > abs(offset.width)
+        let progress = min(abs(offset.height) / 150, 1)
+        return ZStack {
+            Image(systemName: "trash.fill")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(22)
+                .background(.red, in: Circle())
+                .scaleEffect(0.72 + progress * 0.38)
+                .opacity(isUp ? progress : 0)
+            Image(systemName: "heart.fill")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(22)
+                .background(.pink, in: Circle())
+                .scaleEffect(0.72 + progress * 0.38)
+                .opacity(isDown ? progress : 0)
+        }
+        .animation(.easeOut(duration: 0.12), value: isUp)
+        .animation(.easeOut(duration: 0.12), value: isDown)
+    }
+
+    // MARK: Gesture Handling
+
+    private func dragGesture(container: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                isDragging = true
+                offset = value.translation
+                let vertical = abs(value.translation.height) > abs(value.translation.width)
+                let crossed = vertical && abs(value.translation.height) >= swipeThreshold
+                if crossed && !thresholdHapticSent {
+                    thresholdHapticSent = true
+                    guard settings.hapticsEnabled else { return }
+                    let generator = UIImpactFeedbackGenerator(style: value.translation.height < 0 ? .heavy : .light)
+                    generator.prepare()
+                    generator.impactOccurred()
+                } else if !crossed {
+                    thresholdHapticSent = false
+                }
+            }
+            .onEnded { value in
+                isDragging = false
+                thresholdHapticSent = false
+                let translation = value.translation
+                if abs(translation.width) > abs(translation.height), abs(translation.width) >= swipeThreshold {
+                    browseHorizontally(direction: translation.width < 0 ? 1 : -1, width: container.width)
+                } else if translation.height <= -swipeThreshold {
+                    commitDelete()
+                } else if translation.height >= swipeThreshold {
+                    commitFavorite()
+                } else {
+                    withAnimation(spring) { offset = .zero }
+                }
+            }
+    }
+
+    private func browseHorizontally(direction: Int, width: CGFloat) {
+        let target = index + direction
+        guard manager.sessionAssets.indices.contains(target) else {
+            withAnimation(spring) { offset = .zero }
+            return
+        }
+        withAnimation(spring) { offset.width = CGFloat(-direction) * min(width, 520) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            index = target
+            offset = CGSize(width: CGFloat(direction) * 26, height: 0)
+            manager.recordViewed(manager.sessionAssets[index])
+            manager.preheat(around: index)
+            withAnimation(spring) { offset = .zero }
+        }
+    }
+
+    private func commitDelete() {
+        guard let asset = currentAsset else { return }
+        withAnimation(spring) { offset = CGSize(width: 0, height: -flyDistance) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            manager.markForDeletion(asset, at: index)
+            advance()
+        }
+    }
+
+    private func commitFavorite() {
+        guard let asset = currentAsset else { return }
+        withAnimation(spring) { offset = CGSize(width: 0, height: flyDistance) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            manager.markFavorite(asset, at: index)
+            advance()
+        }
+    }
+
+    private func advance() {
+        index += 1
         offset = .zero
-    }
-
-    /// 卡片飞出屏幕动画
-    private func flyOutCard(direction: CGSize, completion: @escaping () -> Void) {
-        withAnimation(AnimationPresets.cardFlyOut) {
-            offset = direction
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + AnimationPresets.cardFlyOutDelay) {
-            completion()
+        if index < manager.sessionAssets.count {
+            manager.recordViewed(manager.sessionAssets[index])
+            manager.preheat(around: index)
         }
     }
-}
 
-// MARK: - 拖拽方向枚举 (Drag Direction)
+    // MARK: Bottom Controls
 
-extension CleaningView {
-    /// 表示卡片拖拽的主导方向
-    enum DragDirection {
-        case none
-        case left
-        case right
-        case up
-        case down
+    private var bottomBar: some View {
+        HStack {
+            Button {
+                Task {
+                    if let restoredIndex = await manager.undoLastAction() {
+                        index = min(restoredIndex, max(manager.sessionAssets.count - 1, 0))
+                        offset = .zero
+                    }
+                }
+            } label: {
+                Label(settings.t("Undo"), systemImage: "arrow.uturn.backward")
+            }
+            .disabled(!manager.canUndo)
+
+            Spacer()
+
+            Button {
+                if let asset = currentAsset {
+                    detailsAsset = asset
+                    showsDetails = true
+                }
+            } label: {
+                Label(settings.t("Details"), systemImage: "info.circle")
+            }
+            .disabled(currentAsset == nil)
+        }
+        .buttonStyle(.bordered)
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    // MARK: States
+
+    private var emptyState: some View {
+        ContentUnavailableView(
+            settings.t("No items in this collection"),
+            systemImage: "photo.on.rectangle.angled",
+            description: Text(settings.t("Review another collection"))
+        )
+    }
+
+    private var finishedState: some View {
+        ContentUnavailableView(
+            settings.t("Review complete"),
+            systemImage: "checkmark.circle.fill",
+            description: Text(settings.t("You reviewed every item in this session."))
+        )
     }
 }

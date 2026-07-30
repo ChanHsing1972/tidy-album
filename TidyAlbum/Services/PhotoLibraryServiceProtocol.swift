@@ -28,9 +28,8 @@ protocol PhotoLibraryServiceProtocol: AnyObject {
     /// - Parameter assets: 待删除的照片资源数组
     func deleteAssets(_ assets: [PHAsset]) async throws
 
-    /// 切换照片的收藏状态
-    /// - Parameter asset: 目标照片资源
-    func toggleFavorite(for asset: PHAsset)
+    /// 将照片收藏状态设置为明确值，便于可靠撤回操作。
+    func setFavorite(_ isFavorite: Bool, for asset: PHAsset) async throws
 
     // MARK: 变更监听
 

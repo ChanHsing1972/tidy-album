@@ -1,131 +1,135 @@
+import Photos
+import PhotosUI
 import SwiftUI
 
-// MARK: - 首页视图 (Home View)
-/// 展示照片统计概览、筛选条件选择和开始清理入口。
-struct HomeView: View {
+// MARK: - Clean Home
 
-    // MARK: 依赖
-
+struct CleanHomeView: View {
     @ObservedObject var manager: PhotoManager
+    @ObservedObject var settings: SettingsStore
 
-    // MARK: 回调
-
-    /// 点击"开始清理"后的回调
-    var onStart: () -> Void
-    /// 点击垃圾桶按钮的回调
-    var onShowTrash: () -> Void
-
-    // MARK: - Body
+    @State private var showsCleaning = false
+    @State private var showsTrash = false
 
     var body: some View {
-        VStack(spacing: DesignTokens.Spacing.section) {
-            headerSection
-            statsSection
-            filterSection
-            Spacer()
-            startButton
-        }
-        .padding(DesignTokens.Spacing.large)
-    }
-
-    // MARK: - 头部区域 (Header)
-
-    private var headerSection: some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text("Good Day")
-                    .font(DesignTokens.Typography.body)
-                    .foregroundColor(DesignTokens.Colors.textSecondary)
-
-                Text("TidyAlbum")
-                    .font(DesignTokens.Typography.hero)
-                    .foregroundStyle(DesignTokens.Colors.gradientTitle)
+        NavigationStack {
+            Group {
+                if manager.isAuthorized {
+                    cleanContent
+                } else {
+                    PermissionView(settings: settings)
+                }
             }
-            Spacer()
-
-            Button(action: onShowTrash) {
-                Circle()
-                    .fill(DesignTokens.Colors.textPrimary.opacity(DesignTokens.Opacity.materialBackground))
-                    .frame(
-                        width: DesignTokens.Dimensions.trashButtonSize,
-                        height: DesignTokens.Dimensions.trashButtonSize
-                    )
-                    .overlay {
-                        Image(systemName: "trash")
-                            .foregroundColor(DesignTokens.Colors.textPrimary)
+            .navigationTitle(settings.t("TidyAlbum"))
+            .toolbar {
+                if manager.isAuthorized {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showsTrash = true } label: {
+                            Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+                        }
+                        .badge(manager.trashBin.count)
+                        .accessibilityLabel(settings.t("Trash"))
                     }
+                }
             }
         }
-        .padding(.top, DesignTokens.Spacing.large)
-    }
-
-    // MARK: - 统计区域 (Stats)
-
-    private var statsSection: some View {
-        VStack(spacing: DesignTokens.Spacing.large) {
-            HStack {
-                StatItemView(
-                    value: "\(manager.assets.count)",
-                    title: "Remaining",
-                    icon: "photo.on.rectangle"
-                )
-                Divider()
-                    .background(DesignTokens.Colors.divider)
-                StatItemView(
-                    value: "\(manager.trashBin.count)",
-                    title: "In Trash",
-                    icon: "trash"
-                )
-            }
+        .fullScreenCover(isPresented: $showsCleaning) {
+            CleaningView(manager: manager, settings: settings)
         }
-        .padding(DesignTokens.Spacing.large)
-        .background(.ultraThinMaterial)
-        .cornerRadius(DesignTokens.CornerRadius.large)
+        .sheet(isPresented: $showsTrash) {
+            TrashView(manager: manager, settings: settings)
+        }
     }
 
-    // MARK: - 筛选区域 (Filter)
+    private var cleanContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                librarySummary
+                filterSection
+                startButton
+                privacyFooter
+            }
+            .padding(.horizontal)
+            .padding(.top, 16) 
+            .padding(.bottom, 28)
+        }
+        .refreshable { manager.fetchPhotos() }
+    }
+
+    // MARK: Library Summary
+
+    private var librarySummary: some View {
+        HStack(spacing: 0) {
+            summaryMetric(value: manager.assets.count, title: "Photos and videos", symbol: "photo.on.rectangle")
+            Divider().frame(height: 48)
+            summaryMetric(value: manager.trashBin.count, title: "Pending deletion", symbol: "trash")
+        }
+        .padding(.vertical, 18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func summaryMetric(value: Int, title: String, symbol: String) -> some View {
+        VStack(spacing: 5) {
+            Label("\(value)", systemImage: symbol)
+                .font(.title2.bold())
+                .foregroundStyle(.primary)
+            Text(settings.t(title))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Filters
 
     private var filterSection: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.relaxed) {
-            Text("Start Cleaning")
+        VStack(alignment: .leading, spacing: 12) {
+            Text(settings.t("Choose a collection"))
                 .font(.headline)
-                .foregroundColor(DesignTokens.Colors.textPrimary)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: DesignTokens.Spacing.relaxed) {
-                    ForEach(PhotoFilter.allCases) { filter in
-                        FilterCardView(
-                            filter: filter,
-                            isSelected: manager.currentFilter == filter
-                        ) {
-                            manager.setFilter(filter)
-                        }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                ForEach(PhotoFilter.allCases) { filter in
+                    FilterCardView(
+                        filter: filter,
+                        title: localizedTitle(for: filter),
+                        isSelected: manager.currentFilter == filter
+                    ) {
+                        manager.setFilter(filter)
                     }
                 }
             }
         }
     }
 
-    // MARK: - 开始按钮 (Start Button)
+    private func localizedTitle(for filter: PhotoFilter) -> String {
+        switch filter {
+        case .all: settings.t("All Photos")
+        case .screenshots: settings.t("Screenshots")
+        case .selfies: settings.t("Selfies")
+        case .favorites: settings.t("Favorites")
+        }
+    }
+
+    // MARK: Start
 
     private var startButton: some View {
-        Button(action: onStart) {
-            HStack {
-                Text("Start Session")
-                    .font(DesignTokens.Typography.title3)
-                Image(systemName: "arrow.right")
-            }
-            .foregroundColor(DesignTokens.Colors.textOnPrimary)
-            .frame(maxWidth: .infinity)
-            .frame(height: DesignTokens.Dimensions.primaryButtonHeight)
-            .background(DesignTokens.Colors.textPrimary)
-            .cornerRadius(DesignTokens.CornerRadius.full)
-            .shadow(
-                color: DesignTokens.Shadow.glowButton.color,
-                radius: DesignTokens.Shadow.glowButton.radius,
-                x: DesignTokens.Shadow.glowButton.x,
-                y: DesignTokens.Shadow.glowButton.y
-            )
+        Button {
+            manager.beginSession()
+            showsCleaning = true
+        } label: {
+            Label(settings.t("Start Cleaning"), systemImage: "arrow.right.circle.fill")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
         }
+        .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.capsule)
+        .disabled(manager.assets.isEmpty || manager.isLoading)
+    }
+
+    private var privacyFooter: some View {
+        Label(settings.t("All processing stays on this iPhone or iPad."), systemImage: "lock.shield")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 }

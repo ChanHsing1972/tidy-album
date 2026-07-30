@@ -65,7 +65,7 @@ struct SummaryView: View {
     private var statsSection: some View {
         HStack(spacing: DesignTokens.Spacing.extraLarge) {
             VStack {
-                Text("\(manager.sessionDeletedCount)")
+                Text("\(manager.analytics.statistics.cleanedCount)")
                     .font(DesignTokens.Typography.displayNumber)
                     .foregroundColor(DesignTokens.Colors.accentRed)
                 Text("Deleted")

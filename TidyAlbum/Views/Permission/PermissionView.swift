@@ -1,37 +1,23 @@
+import Photos
 import SwiftUI
 
-// MARK: - 权限请求视图 (Permission View)
-/// 当用户未授权照片库访问权限时显示的引导页面。
-/// 提供跳转至系统设置的入口。
-struct PermissionView: View {
+// MARK: - Photo Access Prompt
 
-    // MARK: - Body
+struct PermissionView: View {
+    @ObservedObject var settings: SettingsStore
 
     var body: some View {
-        VStack(spacing: DesignTokens.Spacing.large) {
-            Image(systemName: "lock.shield.fill")
-                .font(DesignTokens.Typography.lockIcon)
-                .foregroundColor(DesignTokens.Colors.accentBlue)
-
-            Text("Access Required")
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(DesignTokens.Colors.textPrimary)
-
-            Text("TidyAlbum needs access to your photos to help you clean them up.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(DesignTokens.Colors.textSecondary)
-                .padding(.horizontal)
-
-            Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
+        ContentUnavailableView {
+            Label(settings.t("Photo Access Required"), systemImage: "lock.shield")
+        } description: {
+            Text(settings.t("TidyAlbum needs access to help you review and clean your library."))
+        } actions: {
+            Button(settings.t("Open Settings"), systemImage: "gearshape") {
+                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                UIApplication.shared.open(url)
             }
-            .padding()
-            .background(DesignTokens.Colors.accentBlue)
-            .foregroundColor(DesignTokens.Colors.textPrimary)
-            .cornerRadius(DesignTokens.CornerRadius.small)
+            .buttonStyle(.borderedProminent)
         }
+        .padding()
     }
 }
