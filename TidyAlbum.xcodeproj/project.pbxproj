@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		56F4E78E301B334E009F4D7B /* tidy-album.icon in Resources */ = {isa = PBXBuildFile; fileRef = 56F4E78D301B334E009F4D7B /* tidy-album.icon */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		56EA3DB72EFA95EF001C9A99 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +31,7 @@
 		56EA3DA92EFA95EE001C9A99 /* TidyAlbum.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TidyAlbum.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		56EA3DB62EFA95EF001C9A99 /* TidyAlbumTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TidyAlbumTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		56EA3DC02EFA95EF001C9A99 /* TidyAlbumUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TidyAlbumUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		56F4E78D301B334E009F4D7B /* tidy-album.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "tidy-album.icon"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -78,6 +83,7 @@
 				56EA3DAB2EFA95EE001C9A99 /* TidyAlbum */,
 				56EA3DB92EFA95EF001C9A99 /* TidyAlbumTests */,
 				56EA3DC32EFA95EF001C9A99 /* TidyAlbumUITests */,
+				56F4E78D301B334E009F4D7B /* tidy-album.icon */,
 				56EA3DAA2EFA95EE001C9A99 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -212,6 +218,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				56F4E78E301B334E009F4D7B /* tidy-album.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -393,8 +400,9 @@
 		56EA3DCB2EFA95EF001C9A99 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "tidy-album";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -429,8 +437,9 @@
 		56EA3DCC2EFA95EF001C9A99 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "tidy-album";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
