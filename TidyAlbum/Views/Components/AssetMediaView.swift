@@ -1,4 +1,4 @@
-import AVFoundation
+import AVKit
 import Photos
 import PhotosUI
 import SwiftUI
@@ -43,7 +43,7 @@ struct AssetMediaView: View {
 
     @ViewBuilder private func playbackLayer(size: CGSize) -> some View {
         if allowsPlayback, isActive, asset.mediaType == .video {
-            LoopingAssetVideoView(asset: asset, isActive: isActive)
+            AssetVideoPlayerView(asset: asset, contentMode: contentMode, isActive: isActive)
         } else if allowsPlayback, isActive, asset.mediaSubtypes.contains(.photoLive) {
             AssetLivePhotoView(asset: asset, targetSize: pixelSize(for: size), isActive: isActive)
         }
@@ -109,47 +109,62 @@ struct AssetMediaView: View {
     }
 }
 
-private struct LoopingAssetVideoView: UIViewRepresentable {
+private struct AssetVideoPlayerView: UIViewControllerRepresentable {
     let asset: PHAsset
+    let contentMode: ContentMode
     let isActive: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> PlayerSurfaceView {
-        let view = PlayerSurfaceView()
-        context.coordinator.attach(to: view)
-        context.coordinator.update(asset: asset, isActive: isActive)
-        return view
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.showsPlaybackControls = true
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.entersFullScreenWhenPlaybackBegins = false
+        controller.exitsFullScreenWhenPlaybackEnds = false
+        controller.speeds = [
+            AVPlaybackSpeed(rate: 0.5, localizedName: "0.5×"),
+            AVPlaybackSpeed(rate: 1, localizedName: "1×"),
+            AVPlaybackSpeed(rate: 1.5, localizedName: "1.5×"),
+            AVPlaybackSpeed(rate: 2, localizedName: "2×")
+        ]
+        controller.view.backgroundColor = .clear
+        context.coordinator.attach(to: controller)
+        context.coordinator.update(asset: asset, contentMode: contentMode, isActive: isActive)
+        return controller
     }
 
-    func updateUIView(_ uiView: PlayerSurfaceView, context: Context) {
-        context.coordinator.attach(to: uiView)
-        context.coordinator.update(asset: asset, isActive: isActive)
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        context.coordinator.attach(to: controller)
+        context.coordinator.update(asset: asset, contentMode: contentMode, isActive: isActive)
     }
 
-    static func dismantleUIView(_ uiView: PlayerSurfaceView, coordinator: Coordinator) {
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
         coordinator.tearDown()
     }
 
     final class Coordinator {
-        private weak var surface: PlayerSurfaceView?
+        private weak var controller: AVPlayerViewController?
         private var assetIdentifier = ""
         private var requestID: PHImageRequestID?
-        private var queuePlayer: AVQueuePlayer?
-        private var looper: AVPlayerLooper?
+        private var player: AVPlayer?
         private var isActive = false
 
-        func attach(to surface: PlayerSurfaceView) {
-            self.surface = surface
-            surface.playerLayer.videoGravity = .resizeAspectFill
+        func attach(to controller: AVPlayerViewController) {
+            self.controller = controller
         }
 
-        func update(asset: PHAsset, isActive: Bool) {
+        func update(asset: PHAsset, contentMode: ContentMode, isActive: Bool) {
+            controller?.videoGravity = contentMode == .fill ? .resizeAspectFill : .resizeAspect
+            let becameActive = isActive && !self.isActive
             self.isActive = isActive
             if assetIdentifier != asset.localIdentifier {
                 requestPlayer(for: asset)
+            } else if becameActive {
+                player?.play()
             } else {
-                updatePlayback()
+                if !isActive { player?.pause() }
             }
         }
 
@@ -164,29 +179,22 @@ private struct LoopingAssetVideoView: UIViewRepresentable {
                 guard let item else { return }
                 DispatchQueue.main.async {
                     guard let self, self.assetIdentifier == requestedIdentifier else { return }
-                    let player = AVQueuePlayer()
-                    player.isMuted = true
-                    player.actionAtItemEnd = .none
-                    self.queuePlayer = player
-                    self.looper = AVPlayerLooper(player: player, templateItem: item)
-                    self.surface?.playerLayer.player = player
-                    self.updatePlayback()
+                    let player = AVPlayer(playerItem: item)
+                    player.isMuted = false
+                    player.actionAtItemEnd = .pause
+                    self.player = player
+                    self.controller?.player = player
+                    if self.isActive { player.play() }
                 }
             }
-        }
-
-        private func updatePlayback() {
-            if isActive { queuePlayer?.play() }
-            else { queuePlayer?.pause() }
         }
 
         private func tearDownPlayer() {
             if let requestID { PHImageManager.default().cancelImageRequest(requestID) }
             requestID = nil
-            queuePlayer?.pause()
-            surface?.playerLayer.player = nil
-            looper = nil
-            queuePlayer = nil
+            player?.pause()
+            controller?.player = nil
+            player = nil
         }
 
         func tearDown() {
@@ -194,11 +202,6 @@ private struct LoopingAssetVideoView: UIViewRepresentable {
             assetIdentifier = ""
         }
     }
-}
-
-private final class PlayerSurfaceView: UIView {
-    override static var layerClass: AnyClass { AVPlayerLayer.self }
-    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
 }
 
 private struct AssetLivePhotoView: UIViewRepresentable {

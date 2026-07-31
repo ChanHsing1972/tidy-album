@@ -60,8 +60,8 @@ struct CleaningView: View {
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbarBackground(.hidden, for: .bottomBar)
             .toolbar { toolbar }
+            .safeAreaInset(edge: .bottom, spacing: 0) { bottomControls }
         }
         .onAppear { selectInitialAsset() }
         .onDisappear {
@@ -231,48 +231,44 @@ struct CleaningView: View {
             .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
         }
-        ToolbarItemGroup(placement: .bottomBar) {
+    }
+
+    private var bottomControls: some View {
+        HStack(spacing: 12) {
             Button { undo() } label: {
-                Group {
-                    if isUndoing { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "arrow.uturn.backward").font(.body.weight(.semibold)) }
-                }
-                
-                .contentShape(Rectangle())
+                GlassIconLabel(systemName: "arrow.uturn.backward", isBusy: isUndoing)
             }
             .buttonStyle(.plain)
             .disabled(!manager.canUndo || isUndoing)
             .opacity(manager.canUndo ? 1 : 0.35)
             .accessibilityLabel(settings.t("Undo"))
-            Spacer()
-            if let currentAsset {
-                Button { detailsSelection = AssetSheetSelection(asset: currentAsset) } label: {
-                    CleaningAssetInfoIsland(
-                        asset: currentAsset,
-                        settings: settings,
-                        isFavorite: manager.isFavorite(currentAsset)
-                    )
-                    .frame(width: 210)
-                    .frame(minHeight: 44)
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(settings.t("Details"))
+            Spacer(minLength: 0)
+            Button { detailsSelection = currentAsset.map { AssetSheetSelection(asset: $0) } } label: {
+                CleaningAssetInfoIsland(
+                    asset: currentAsset,
+                    settings: settings,
+                    isFavorite: currentAsset.map { manager.isFavorite($0) } ?? false
+                )
+                .frame(minHeight: 46)
+                .contentShape(Capsule())
+                .liquidGlassCapsule()
             }
-            Spacer()
+            .buttonStyle(.plain)
+            .disabled(currentAsset == nil)
+            .opacity(currentAsset == nil ? 0 : 1)
+            .accessibilityLabel(settings.t("Details"))
+            .frame(maxWidth: 210)
+            Spacer(minLength: 0)
             Button(action: prepareShare) {
-                Group {
-                    if isPreparingShare { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)) }
-                }
-                
-                .contentShape(Rectangle())
+                GlassIconLabel(systemName: "square.and.arrow.up", isBusy: isPreparingShare)
             }
             .buttonStyle(.plain)
             .disabled(currentAsset == nil || isPreparingShare)
             .opacity(currentAsset == nil ? 0.35 : 1)
             .accessibilityLabel(settings.t("Share"))
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder private var sessionProgress: some View {
@@ -429,7 +425,7 @@ private struct CleaningCardStage: View {
             .contentShape(Rectangle())
             .gesture(reviewGesture(in: proxy.size))
         }
-        .padding(.bottom, 38)
+        .padding(.bottom, 4)
         .onDisappear {
             transitionTask?.cancel()
             transitionTask = nil
@@ -812,7 +808,7 @@ private struct GroupCompletionPage: View {
 }
 
 private struct CleaningAssetInfoIsland: View {
-    let asset: PHAsset
+    let asset: PHAsset?
     @ObservedObject var settings: SettingsStore
     let isFavorite: Bool
 
@@ -820,29 +816,31 @@ private struct CleaningAssetInfoIsland: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            VStack(spacing: 2) {
-                if let creationDate = asset.creationDate {
-                    Text(settings.relativeDate(creationDate))
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
+            if let asset {
+                VStack(spacing: 2) {
+                    if let creationDate = asset.creationDate {
+                        Text(settings.relativeDate(creationDate))
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                    }
+                    if let placeName {
+                        Text(placeName)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
-                if let placeName {
-                    Text(placeName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                if isFavorite {
+                    Image(systemName: "heart.fill")
+                        .font(.caption)
+                        .foregroundStyle(.primary)
                 }
-            }
-            if isFavorite {
-                Image(systemName: "heart.fill")
-                    .font(.caption)
-                    .foregroundStyle(.primary)
             }
         }
         .padding(.horizontal, 12)
-        .task(id: "\(asset.localIdentifier)-\(settings.language.rawValue)") {
+        .task(id: asset.map { "\($0.localIdentifier)-\(settings.language.rawValue)" } ?? "") {
             placeName = nil
-            guard let location = asset.location else { return }
+            guard let asset, let location = asset.location else { return }
             placeName = await placeDescription(for: location)
         }
     }

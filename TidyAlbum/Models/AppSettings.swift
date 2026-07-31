@@ -83,6 +83,7 @@ final class SettingsStore: ObservableObject {
         static let haptics = "settings.haptics"
         static let deletionMode = "settings.deletionMode"
         static let sortOrder = "settings.sortOrder"
+        static let excludesViewedInRandomMode = "settings.excludesViewedInRandomMode"
         static let progressDisplay = "settings.progressDisplay"
         static let cleaningGroupSize = "settings.cleaningGroupSize"
         static let themeMode = "settings.themeMode"
@@ -102,6 +103,10 @@ final class SettingsStore: ObservableObject {
 
     @Published var sortOrder: PhotoSortOrder {
         didSet { defaults.set(sortOrder.rawValue, forKey: Key.sortOrder) }
+    }
+
+    @Published var excludesViewedInRandomMode: Bool {
+        didSet { defaults.set(excludesViewedInRandomMode, forKey: Key.excludesViewedInRandomMode) }
     }
 
     @Published var progressDisplayMode: ProgressDisplayMode {
@@ -124,6 +129,7 @@ final class SettingsStore: ObservableObject {
         hapticsEnabled = defaults.object(forKey: Key.haptics) as? Bool ?? true
         deletionMode = DeletionMode(rawValue: defaults.string(forKey: Key.deletionMode) ?? "") ?? .appTrash
         sortOrder = PhotoSortOrder(rawValue: defaults.string(forKey: Key.sortOrder) ?? "") ?? .newestFirst
+        excludesViewedInRandomMode = defaults.object(forKey: Key.excludesViewedInRandomMode) as? Bool ?? false
         progressDisplayMode = ProgressDisplayMode(rawValue: defaults.string(forKey: Key.progressDisplay) ?? "") ?? .barOnly
         cleaningGroupSize = CleaningGroupSize(rawValue: defaults.integer(forKey: Key.cleaningGroupSize)) ?? .compact
         themeMode = ThemeMode(rawValue: defaults.string(forKey: Key.themeMode) ?? "") ?? .dark

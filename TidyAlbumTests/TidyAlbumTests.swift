@@ -21,6 +21,7 @@ struct TidyAlbumTests {
         settings.hapticsEnabled = false
         settings.deletionMode = .systemTrash
         settings.sortOrder = .random
+        settings.excludesViewedInRandomMode = true
         settings.progressDisplayMode = .barOnly
         settings.cleaningGroupSize = .extraLarge
 
@@ -29,6 +30,7 @@ struct TidyAlbumTests {
         #expect(restored.hapticsEnabled == false)
         #expect(restored.deletionMode == .systemTrash)
         #expect(restored.sortOrder == .random)
+        #expect(restored.excludesViewedInRandomMode)
         #expect(restored.progressDisplayMode == .barOnly)
         #expect(restored.cleaningGroupSize == .extraLarge)
     }

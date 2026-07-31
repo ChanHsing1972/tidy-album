@@ -32,6 +32,7 @@ final class PhotoManager: NSObject, ObservableObject {
     @Published private(set) var sessionGroupReviewedCount = 0
     @Published private(set) var sessionGroupTotalCount = 0
     @Published private(set) var sessionSummary = CleaningSessionSummary()
+    @Published private(set) var viewedAssetCount = 0
     @Published var currentFilter: PhotoFilter = .all
     @Published private var favoriteStates: [String: Bool] = [:]
 
@@ -50,12 +51,18 @@ final class PhotoManager: NSObject, ObservableObject {
     private var overviewRevision = 0
     private var hasRestoredPendingQueue = false
     private var overviewRefreshTask: Task<Void, Never>?
+    private var persistedViewedIdentifiers: Set<String> = []
     private let pendingDeletionKey = "photoManager.pendingDeletionIdentifiers.v1"
+    private let viewedIdentifiersKey = "photoManager.viewedIdentifiers.v1"
 
     // MARK: Derived State
 
     var canUndo: Bool { !history.isEmpty }
-    var canBeginSession: Bool { loadedFilter == currentFilter && !assets.isEmpty && !isLoading }
+    var canBeginSession: Bool { loadedFilter == currentFilter && cleaningCandidateCount > 0 && !isLoading }
+    var cleaningCandidateCount: Int {
+        guard settings.sortOrder == .random, settings.excludesViewedInRandomMode else { return assets.count }
+        return assets.lazy.filter { !self.persistedViewedIdentifiers.contains($0.localIdentifier) }.count
+    }
     var hasNextGroup: Bool { sessionCursor < sessionQueue.count }
     var isCurrentGroupComplete: Bool {
         sessionGroupTotalCount > 0 && sessionGroupReviewedCount >= sessionGroupTotalCount
@@ -76,6 +83,8 @@ final class PhotoManager: NSObject, ObservableObject {
         self.settings = settings
         self.analytics = analytics
         self.defaults = defaults
+        persistedViewedIdentifiers = Set(defaults.stringArray(forKey: viewedIdentifiersKey) ?? [])
+        viewedAssetCount = persistedViewedIdentifiers.count
         super.init()
         photoService.registerChangeObserver(self)
         checkPermission()
@@ -161,8 +170,14 @@ final class PhotoManager: NSObject, ObservableObject {
 
     func beginSession() {
         let trashIDs = Set(trashBin.map(\.localIdentifier))
-        let available = settings.sortOrder == .random ? assets.shuffled() : assets
-        sessionQueue = available.filter { !trashIDs.contains($0.localIdentifier) }
+        var available = assets.filter { !trashIDs.contains($0.localIdentifier) }
+        if settings.sortOrder == .random {
+            if settings.excludesViewedInRandomMode {
+                available.removeAll { persistedViewedIdentifiers.contains($0.localIdentifier) }
+            }
+            available.shuffle()
+        }
+        sessionQueue = available
         sessionCursor = 0
         isSessionActive = true
         sessionGroupNumber = 0
@@ -202,6 +217,10 @@ final class PhotoManager: NSObject, ObservableObject {
     func recordViewed(_ asset: PHAsset) {
         let identifier = asset.localIdentifier
         guard currentGroupIdentifiers.contains(identifier) else { return }
+        if persistedViewedIdentifiers.insert(identifier).inserted {
+            viewedAssetCount = persistedViewedIdentifiers.count
+            persistViewedIdentifiers()
+        }
         if groupReviewedIdentifiers.insert(identifier).inserted {
             sessionGroupReviewedCount = groupReviewedIdentifiers.count
         }
@@ -234,6 +253,12 @@ final class PhotoManager: NSObject, ObservableObject {
         sessionGroupCount = 0
         sessionGroupReviewedCount = 0
         sessionGroupTotalCount = 0
+    }
+
+    func clearViewedHistory() {
+        persistedViewedIdentifiers.removeAll()
+        viewedAssetCount = 0
+        defaults.removeObject(forKey: viewedIdentifiersKey)
     }
 
     // MARK: Review Actions
@@ -454,6 +479,10 @@ final class PhotoManager: NSObject, ObservableObject {
 
     private func persistTrash() {
         defaults.set(trashBin.map(\.localIdentifier), forKey: pendingDeletionKey)
+    }
+
+    private func persistViewedIdentifiers() {
+        defaults.set(Array(persistedViewedIdentifiers), forKey: viewedIdentifiersKey)
     }
 
     private func scheduleLibraryOverviewRefresh() {

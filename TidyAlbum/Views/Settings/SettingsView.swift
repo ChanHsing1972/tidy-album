@@ -4,6 +4,9 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var manager: PhotoManager
+
+    @State private var showsClearViewedConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -41,6 +44,21 @@ struct SettingsView: View {
                     } label: {
                         Label(settings.t("Photo Order"), systemImage: "arrow.up.arrow.down")
                     }
+                    if settings.sortOrder == .random {
+                        Toggle(isOn: $settings.excludesViewedInRandomMode) {
+                            Label(settings.t("Filter Viewed Items"), systemImage: "eye.slash")
+                        }
+                        if settings.excludesViewedInRandomMode {
+                            LabeledContent(
+                                settings.t("Viewed Items"),
+                                value: manager.viewedAssetCount.formatted()
+                            )
+                            Button(settings.t("Clear Viewed History"), role: .destructive) {
+                                showsClearViewedConfirmation = true
+                            }
+                            .disabled(manager.viewedAssetCount == 0)
+                        }
+                    }
                     Picker(selection: $settings.progressDisplayMode) {
                         Text(settings.t("Numbers Only")).tag(ProgressDisplayMode.textOnly)
                         Text(settings.t("Progress Bar Only")).tag(ProgressDisplayMode.barOnly)
@@ -59,6 +77,9 @@ struct SettingsView: View {
                     Text(settings.t("Cleaning Preferences"))
                 } footer: {
                     Text(settings.t("Only one group is loaded at a time to keep browsing smooth."))
+                    if settings.sortOrder == .random, settings.excludesViewedInRandomMode {
+                        Text(settings.t("Hide items already reviewed in previous random sessions."))
+                    }
                     if settings.deletionMode == .systemTrash {
                         Text(settings.t("Direct deletion asks Photos for confirmation and cannot be undone inside TidyAlbum."))
                     }
@@ -78,6 +99,18 @@ struct SettingsView: View {
             }
             .formStyle(.grouped)
             .navigationTitle(settings.t("Settings"))
+            .confirmationDialog(
+                settings.t("Clear Viewed History?"),
+                isPresented: $showsClearViewedConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button(settings.t("Clear Viewed History"), role: .destructive) {
+                    manager.clearViewedHistory()
+                }
+                Button(settings.t("Cancel"), role: .cancel) {}
+            } message: {
+                Text(settings.t("Previously reviewed items will appear in random sessions again."))
+            }
         }
     }
 

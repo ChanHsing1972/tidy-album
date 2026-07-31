@@ -69,15 +69,12 @@ struct CleanHomeView: View {
             .frame(maxWidth: 760)
             .padding(.horizontal, 20)
             .padding(.top, 8)
-            .padding(.bottom, 92)
+            .padding(.bottom, 28)
             .frame(maxWidth: .infinity)
         }
         .refreshable {
             manager.fetchPhotos()
             manager.refreshLibraryOverview()
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            startActionBar
         }
     }
 
@@ -108,9 +105,31 @@ struct CleanHomeView: View {
                 )
                 Divider().frame(height: 42)
                 overviewMetric(
-                    value: "\(min(manager.assets.count, settings.cleaningGroupSize.rawValue))",
+                    value: "\(min(manager.cleaningCandidateCount, settings.cleaningGroupSize.rawValue))",
                     title: settings.t("Next Group")
                 )
+            }
+
+            if manager.canBeginSession {
+                Divider()
+                Button {
+                    if manager.currentFilter != .all { manager.setFilter(.all) }
+                    beginCleaning()
+                } label: {
+                    HStack {
+                        Image(systemName: "sparkles")
+                        Text(settings.t("Quick Clean All Photos"))
+                        Spacer()
+                        Image(systemName: "arrow.right")
+                            .font(.caption.weight(.bold))
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(height: 44)
+                    .background(.blue, in: Capsule())
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(22)
@@ -179,8 +198,32 @@ struct CleanHomeView: View {
 
     private var collectionSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(settings.t("Collections"))
-                .font(.title3.bold())
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(settings.t("Collections"))
+                        .font(.title3.bold())
+                    Text(collectionActionSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Button(action: beginCleaning) {
+                    Group {
+                        if manager.isLoading {
+                            ProgressView()
+                        } else {
+                            Label(settings.t("Start Cleaning"), systemImage: "play.fill")
+                        }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.regular)
+                .disabled(!manager.canBeginSession)
+                .accessibilityValue("\(manager.cleaningCandidateCount) \(settings.t("Items"))")
+            }
 
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
@@ -201,6 +244,16 @@ struct CleanHomeView: View {
         }
     }
 
+    private var collectionActionSubtitle: String {
+        if manager.isLoading { return settings.t("Loading Photos") }
+        if manager.cleaningCandidateCount == 0,
+           settings.sortOrder == .random,
+           settings.excludesViewedInRandomMode {
+            return settings.t("All Items Reviewed")
+        }
+        return "\(localizedTitle(for: manager.currentFilter)) · \(manager.cleaningCandidateCount) \(settings.t("Items"))"
+    }
+
     private func count(for filter: PhotoFilter) -> Int {
         manager.filterCounts[filter] ?? (filter == manager.currentFilter ? manager.assets.count : 0)
     }
@@ -215,40 +268,6 @@ struct CleanHomeView: View {
         case .selfies: settings.t("Selfies")
         case .favorites: settings.t("Favorites")
         }
-    }
-
-    // MARK: Primary Action
-
-    private var startActionBar: some View {
-        Button(action: beginCleaning) {
-            HStack(spacing: 10) {
-                if manager.isLoading {
-                    ProgressView()
-                        .tint(.white)
-                    Text(settings.t("Loading Photos"))
-                } else {
-                    Image(systemName: "sparkles")
-                    Text(settings.t("Start Cleaning"))
-                    Spacer()
-                    if !manager.assets.isEmpty {
-                        Text("\(min(manager.assets.count, settings.cleaningGroupSize.rawValue))")
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.78))
-                    }
-                    Image(systemName: "arrow.right")
-                }
-            }
-            .font(.headline)
-            .padding(.horizontal, 18)
-            .frame(maxWidth: .infinity, minHeight: 56)
-        }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.capsule)
-        .disabled(!manager.canBeginSession)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(.bar)
-        .animation(.easeInOut(duration: 0.2), value: manager.isLoading)
     }
 
     private func beginCleaning() {

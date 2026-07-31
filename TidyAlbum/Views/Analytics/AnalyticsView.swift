@@ -14,17 +14,12 @@ struct AnalyticsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    overview
-                    activity
-                    mediaBreakdown
-                    cleanupResults
-                    productivity
+            Group {
+                if stats.reviewedCount == 0 && stats.cleanedCount == 0 {
+                    analyticsEmptyState
+                } else {
+                    analyticsContent
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 32)
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(settings.t("Analytics"))
@@ -56,6 +51,47 @@ struct AnalyticsView: View {
             Button(settings.t("Cancel"), role: .cancel) {}
         } message: {
             Text(settings.t("This removes cleanup statistics from this device."))
+        }
+    }
+
+    // MARK: Empty State
+
+    private var analyticsEmptyState: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "chart.bar.xaxis")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(.secondary)
+                .frame(width: 96, height: 96)
+                .background(.primary.opacity(0.06), in: Circle())
+            VStack(spacing: 8) {
+                Text(settings.t("No cleanup history yet"))
+                    .font(.title3.weight(.semibold))
+                Text(settings.t("Start a cleaning session to see your progress here."))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Content
+
+    private var analyticsContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                overview
+                activity
+                mediaBreakdown
+                cleanupResults
+                productivity
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
         }
     }
 

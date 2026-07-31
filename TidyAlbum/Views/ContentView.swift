@@ -34,7 +34,7 @@ struct ContentView: View {
                     Label(settings.t("Analytics"), systemImage: "chart.bar.xaxis")
                 }
 
-            SettingsView(settings: settings)
+            SettingsView(settings: settings, manager: manager)
                 .tabItem {
                     Label(settings.t("Settings"), systemImage: "gearshape")
                 }
