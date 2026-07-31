@@ -11,18 +11,29 @@ struct AssetDetailsView: View {
     @ObservedObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     @State private var metadata: AssetMetadata?
+    @State private var captionText: String = ""
+    @State private var placeName: String?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 12) {
+                    // 1. 顶部 4:3 预览
                     mediaPreview
-                    capturedSection
-                    fileSection
-                    if hasCameraDetails { cameraSection }
-                    if let location = asset.location { locationSection(location) }
+                    
+                    // 2. 添加说明（Caption）
+//                    captionField
+                    
+                    // 3. 核心参数大卡片 (包含时间、文件名、相机、参数)
+                    mainInfoCard
+                    
+                    // 4. 地理位置卡片
+                    if let location = asset.location {
+                        locationCard(location)
+                    }
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
                 .padding(.bottom, 28)
             }
             .navigationTitle(settings.t("Media Details"))
@@ -35,7 +46,7 @@ struct AssetDetailsView: View {
         }
     }
 
-    // MARK: Preview
+    // MARK: - 1. 4:3 Media Preview
 
     private var mediaPreview: some View {
         AssetMediaView(
@@ -45,192 +56,254 @@ struct AssetDetailsView: View {
             allowsPlayback: true,
             isActive: true
         )
-        .aspectRatio(assetAspectRatio, contentMode: .fit)
+        .aspectRatio(4 / 3, contentMode: .fit)
         .frame(maxWidth: .infinity)
-        .frame(maxHeight: 270)
         .background(Color.black.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    private var assetAspectRatio: CGFloat {
-        guard asset.pixelHeight > 0 else { return 1 }
-        return CGFloat(asset.pixelWidth) / CGFloat(asset.pixelHeight)
-    }
+    // MARK: - 3. Main Info Card (Apple Style)
 
-    // MARK: Captured Information
-
-    private var capturedSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(capturedDate)
-                        .font(.headline)
-                    Text(capturedTime)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: asset.mediaType == .video ? "video.fill" : "photo.fill")
-                    .foregroundStyle(.blue)
-            }
-        }
-        .informationGroup()
-    }
-
-    // MARK: File Information
-
-    private var fileSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "doc.fill")
-                    .foregroundStyle(.blue)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(fileName)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(fileSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                if metadata == nil { ProgressView().controlSize(.small) }
-            }
+    private var mainInfoCard: some View {
+        VStack(spacing: 0) {
+            // Section 1: 日期、时间与文件名
+            dateAndFileHeader
+                .padding(14)
+            
             Divider()
-            LazyVGrid(columns: technicalColumns, alignment: .leading, spacing: 12) {
-                technicalValue(settings.t("Dimensions"), value: "\(asset.pixelWidth) × \(asset.pixelHeight)")
-                if asset.mediaType == .video {
-                    technicalValue(settings.t("Duration"), value: durationText)
-                }
-                if let metadata, metadata.fileSize > 0 {
-                    technicalValue(
-                        settings.t("File Size"),
-                        value: ByteCountFormatter.string(fromByteCount: metadata.fileSize, countStyle: .file)
-                    )
-                }
+                .padding(.leading, 14)
+
+            // Section 2: 设备信息 & Badge
+            if let deviceModel = metadata?.deviceModel ?? defaultDeviceModel {
+                deviceSection(model: deviceModel)
+                    .padding(14)
+                Divider()
+                    .padding(.leading, 14)
+            }
+
+            // Section 3: 镜头细节与分辨率/文件大小
+            cameraAndSpecsSection
+                .padding(14)
+
+            // Section 4: 底部 5 列曝光参数条 (ISO, 焦距, 光圈, 快门)
+            if hasEXIFParams {
+                exifParameterBar
             }
         }
-        .informationGroup()
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var technicalColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 96), spacing: 12)]
-    }
-
-    private func technicalValue(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Text(value)
-                .font(.caption.weight(.medium).monospacedDigit())
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-    }
-
-    // MARK: Camera Information
-
-    private var hasCameraDetails: Bool {
-        guard let metadata else { return false }
-        return metadata.deviceModel != nil || metadata.lensModel != nil || metadata.aperture != nil
-    }
-
-    private var cameraSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let model = metadata?.deviceModel {
-                Label(model, systemImage: "camera.fill")
+    // Header: 时间与文件名
+    private var dateAndFileHeader: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(fullFormattedDate)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                
+                HStack(spacing: 4) {
+                    Text(fileName)
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
             }
-//            if let lens = metadata?.lensModel {
-//                Text(lens)
-//                    .font(.caption)
-//                    .foregroundStyle(.secondary)
-//            }
-            Divider()
-            HStack(alignment: .top, spacing: 0) {
-                if let aperture = metadata?.aperture {
-                    technicalValue(settings.t("Aperture"), value: String(format: "ƒ/%.1f", aperture))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // Device Model & Badges
+    private func deviceSection(model: String) -> some View {
+        HStack {
+            Text(model)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+            
+            Spacer()
+            
+            // 右侧格式 Badges (如 HEIF, RAW 等)
+            HStack(spacing: 6) {
+                if let format = fileFormatExtension {
+                    badgeView(text: format)
                 }
-                if let exposure = metadata?.exposureTime, exposure > 0 {
-                    technicalValue(settings.t("Exposure"), value: String(format: "1/%.0f s", 1 / exposure))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if let iso = metadata?.iso {
-                    technicalValue(settings.t("ISO"), value: "ISO \(iso)")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if let focalLength = metadata?.focalLength {
-                    technicalValue(settings.t("Focal Length"), value: String(format: "%.0f mm", focalLength))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if asset.mediaSubtypes.contains(.photoLive) {
+                    Image(systemName: "livephoto")
+                        .font(.caption2)
+                        .padding(4)
+                        .background(Color(uiColor: .tertiarySystemFill))
+                        .clipShape(Circle())
                 }
             }
         }
-        .informationGroup()
     }
 
-    // MARK: Location
-
-    private func locationSection(_ location: CLLocation) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Map(initialPosition: .region(MKCoordinateRegion(
-                center: location.coordinate,
-                latitudinalMeters: 900,
-                longitudinalMeters: 900
-            ))) {
-                Marker(settings.t("Captured"), coordinate: location.coordinate)
+    // Camera Lens & Resolution
+    private var cameraAndSpecsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(lensDescription)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
             }
-            .mapStyle(.standard(elevation: .realistic))
-            .frame(height: 190)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            Text(coordinateText(location.coordinate))
-                .font(.caption)
+
+            Text(specSummaryText)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .informationGroup()
     }
 
-    // MARK: Formatting
+    // 底部横向 EXIF 参数栏
+    private var exifParameterBar: some View {
+        HStack(spacing: 0) {
+            exifCell(title: "ISO", value: metadata?.iso != nil ? "\(metadata!.iso!)" : "—")
+            exifCell(title: settings.t("焦距"), value: metadata?.focalLength != nil ? String(format: "%.0f mm", metadata!.focalLength!) : "—")
+            exifCell(title: settings.t("曝光"), value: metadata?.exposureTime != nil ? String(format: "%.1f ev", metadata!.exposureTime!) : "0 ev")
+            exifCell(title: settings.t("光圈"), value: metadata?.aperture != nil ? String(format: "ƒ%.2f", metadata!.aperture!) : "—")
+            exifCell(title: settings.t("快门"), value: shutterSpeedText)
+        }
+        .padding(.vertical, 10)
+        .background(Color(uiColor: .tertiarySystemGroupedBackground).opacity(0.5))
+    }
+
+    private func exifCell(title: String, value: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+            Text(title)
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - 4. Location Card
+
+    private func locationCard(_ location: CLLocation) -> some View {
+        VStack(spacing: 0) {
+            // 地图预览
+            Map(initialPosition: .region(MKCoordinateRegion(
+                center: location.coordinate,
+                latitudinalMeters: 800,
+                longitudinalMeters: 800
+            ))) {
+                Marker("", coordinate: location.coordinate)
+            }
+            .mapStyle(.standard(elevation: .realistic))
+            .frame(height: 160)
+            .disabled(true)
+
+            // 地址文本
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let placeName {
+                        Text(placeName)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                    } else {
+                        Text(coordinateText(location.coordinate))
+                            .font(.subheadline)
+                            .foregroundStyle(.blue)
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    }
+                }
+                Spacer()
+            }
+            .padding(14)
+        }
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .task {
+            placeName = await reverseGeocode(location)
+        }
+    }
+
+    // MARK: - Helpers & Formatters
+
+    private func badgeView(text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color(uiColor: .tertiarySystemFill))
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+
+    private var hasEXIFParams: Bool {
+        guard let metadata else { return false }
+        return metadata.iso != nil || metadata.aperture != nil || metadata.focalLength != nil
+    }
+
+    private var defaultDeviceModel: String? {
+        asset.mediaType == .image ? settings.t("无设备信息") : nil
+    }
+
+    private var fullFormattedDate: String {
+        guard let date = asset.creationDate else { return settings.t("未知日期") }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy年M月d日 EEEE HH:mm"
+        return formatter.string(from: date)
+    }
 
     private var fileName: String {
         metadata?.fileName
             ?? PHAssetResource.assetResources(for: asset).first?.originalFilename
-            ?? settings.t("Unknown File")
+            ?? "IMG_0000.HEIC"
     }
 
-    private var fileSummary: String {
-        let type = metadata.flatMap { UTType($0.uniformType)?.preferredFilenameExtension?.uppercased() }
+    private var fileFormatExtension: String? {
+        let ext = metadata.flatMap { UTType($0.uniformType)?.preferredFilenameExtension?.uppercased() }
             ?? URL(fileURLWithPath: fileName).pathExtension.uppercased()
-        let media = asset.mediaType == .video ? settings.t("Video") : settings.t("Photo")
-        return type.isEmpty ? media : "\(media) · \(type)"
+        return ext.isEmpty ? nil : ext
     }
 
-    private var capturedDate: String {
-        asset.creationDate?.formatted(date: .complete, time: .omitted) ?? settings.t("Unknown Date")
+    private var megaPixelsText: String {
+        let mp = Double(asset.pixelWidth * asset.pixelHeight) / 1_000_000.0
+        return String(format: "%.0f MP", mp)
     }
 
-    private var capturedTime: String {
-        asset.creationDate?.formatted(date: .omitted, time: .shortened) ?? "—"
+    private var specSummaryText: String {
+        var parts: [String] = []
+        parts.append(megaPixelsText)
+        parts.append("\(asset.pixelWidth) × \(asset.pixelHeight)")
+        if let size = metadata?.fileSize, size > 0 {
+            parts.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+        }
+        return parts.joined(separator: " · ")
     }
 
-    private var durationText: String {
-        let formatter = DateComponentsFormatter()
-        formatter.allowedUnits = asset.duration >= 3_600 ? [.hour, .minute, .second] : [.minute, .second]
-        formatter.zeroFormattingBehavior = .pad
-        return formatter.string(from: asset.duration) ?? "0:00"
+    private var lensDescription: String {
+        guard let focal = metadata?.focalLength, let aperture = metadata?.aperture else {
+            return settings.t("无镜头信息")
+        }
+        return String(format: "%.0f mm ƒ/%.2f", focal, aperture)
+    }
+
+    private var shutterSpeedText: String {
+        guard let exp = metadata?.exposureTime, exp > 0 else { return "—" }
+        if exp < 1.0 {
+            return String(format: "1/%.0f s", 1.0 / exp)
+        } else {
+            return String(format: "%.1f s", exp)
+        }
     }
 
     private func coordinateText(_ coordinate: CLLocationCoordinate2D) -> String {
-        String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
+        String(format: "%.4f, %.4f", coordinate.latitude, coordinate.longitude)
     }
-}
 
-private extension View {
-    func informationGroup() -> some View {
-        padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    private func reverseGeocode(_ location: CLLocation) async -> String? {
+        let geocoder = CLGeocoder()
+        let placemarks = try? await geocoder.reverseGeocodeLocation(location, preferredLocale: Locale(identifier: "zh_CN"))
+        guard let placemark = placemarks?.first else { return nil }
+        var parts: [String] = []
+        if let country = placemark.country { parts.append(country) }
+        if let administrativeArea = placemark.administrativeArea { parts.append(administrativeArea) }
+        if let locality = placemark.locality { parts.append(locality) }
+        if let subLocality = placemark.subLocality { parts.append(subLocality) }
+        if let name = placemark.name { parts.append(name) }
+        return parts.isEmpty ? nil : parts.joined()
     }
 }

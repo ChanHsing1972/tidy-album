@@ -53,7 +53,7 @@ enum AppStrings {
         "Show Both": "均展示", "Group Complete": "本组清理完成", "Group": "组",
         "Clean Next Group": "清理下一组", "View Summary": "查看清理总结", "Continue Reviewing": "继续查看本组",
         "Theme": "主题", "Follow System": "跟随系统", "Light": "浅色", "Dark": "深色",
-        "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。"
+        "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "无设备信息": "No device information", "无镜头信息": "No camera information"
     ]
 }
 
