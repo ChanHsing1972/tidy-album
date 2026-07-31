@@ -37,19 +37,15 @@ struct AssetMediaView: View {
                 .resizable()
                 .aspectRatio(contentMode: contentMode)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .transition(.opacity.animation(.easeOut(duration: 0.18)))
+                .transition(.opacity)
         }
     }
 
     @ViewBuilder private func playbackLayer(size: CGSize) -> some View {
-        if allowsPlayback, asset.mediaType == .video {
+        if allowsPlayback, isActive, asset.mediaType == .video {
             LoopingAssetVideoView(asset: asset, isActive: isActive)
-                .opacity(isActive ? 1 : 0)
-                .animation(.easeInOut(duration: 0.2), value: isActive)
-        } else if allowsPlayback, asset.mediaSubtypes.contains(.photoLive) {
+        } else if allowsPlayback, isActive, asset.mediaSubtypes.contains(.photoLive) {
             AssetLivePhotoView(asset: asset, targetSize: pixelSize(for: size), isActive: isActive)
-                .opacity(isActive ? 1 : 0)
-                .animation(.easeInOut(duration: 0.2), value: isActive)
         }
     }
 
@@ -89,19 +85,27 @@ struct AssetMediaView: View {
             return
         }
         let requestedAssetID = asset.localIdentifier
+        let shouldFadeIn = image == nil
         imageRequestID = AssetImagePipeline.shared.requestImage(
             for: asset,
             targetSize: targetSize,
             contentMode: photoKitMode
         ) { loadedImage in
-            guard requestedAssetID == asset.localIdentifier else { return }
-            withAnimation(.easeOut(duration: 0.18)) { image = loadedImage }
+            guard requestedAssetID == asset.localIdentifier, requestedImageKey == key else { return }
+            if shouldFadeIn, image == nil {
+                withAnimation(.easeOut(duration: 0.16)) { image = loadedImage }
+            } else {
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) { image = loadedImage }
+            }
         }
     }
 
     private func cancelImageRequest() {
         AssetImagePipeline.shared.cancel(imageRequestID)
         imageRequestID = nil
+        requestedImageKey = ""
     }
 }
 

@@ -1,10 +1,13 @@
 import Photos
 import SwiftUI
 
-struct CardView: View {
+struct CardView: View, Equatable {
     let asset: PHAsset
     var isActive = false
-    var isFavorite = false
+
+    static func == (lhs: CardView, rhs: CardView) -> Bool {
+        lhs.asset.localIdentifier == rhs.asset.localIdentifier && lhs.isActive == rhs.isActive
+    }
 
     private var assetAspectRatio: CGFloat {
         guard asset.pixelHeight > 0 else { return 1 }

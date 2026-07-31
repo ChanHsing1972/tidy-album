@@ -10,6 +10,7 @@ struct TrashView: View {
 
     @State private var showsDeleteConfirmation = false
     @State private var detailsSelection: TrashAssetSelection?
+    @State private var restoringAssetIDs: Set<String> = []
 
     private let columns = [GridItem(.adaptive(minimum: 108), spacing: 3)]
 
@@ -74,7 +75,15 @@ struct TrashView: View {
             // 移除了原先的 queueSummary 区域，让照片直接顶上
             LazyVGrid(columns: columns, spacing: 3) {
                 ForEach(manager.trashBin, id: \.localIdentifier) { asset in
-                    queueItem(asset)
+                    TrashQueueItem(
+                        asset: asset,
+                        isRestoring: restoringAssetIDs.contains(asset.localIdentifier),
+                        detailsLabel: settings.t("View Details"),
+                        restoreLabel: settings.t("Restore"),
+                        onDetails: { detailsSelection = TrashAssetSelection(asset: asset) },
+                        onRestore: { restore(asset) }
+                    )
+                    .equatable()
                 }
             }
             .padding(.horizontal, 4)
@@ -82,32 +91,22 @@ struct TrashView: View {
         }
     }
 
-    private func queueItem(_ asset: PHAsset) -> some View {
-        ZStack(alignment: .bottomTrailing) {
-            Button {
-                detailsSelection = TrashAssetSelection(asset: asset)
-            } label: {
-                AssetMediaView(asset: asset, contentMode: .fill)
-                    .aspectRatio(1, contentMode: .fill)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(settings.t("View Details"))
-
-            Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    manager.restoreFromTrash(asset)
-                }
-            } label: {
-                Image(systemName: "arrow.uturn.backward.circle.fill")
-                    .font(.title2)
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.55))
-                    .padding(8)
-            }
-            .accessibilityLabel(settings.t("Restore"))
+    private func restore(_ asset: PHAsset) {
+        let identifier = asset.localIdentifier
+        guard !restoringAssetIDs.contains(identifier) else { return }
+        _ = withAnimation(.easeOut(duration: 0.14)) {
+            restoringAssetIDs.insert(identifier)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(140))
+            guard !Task.isCancelled else { return }
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                manager.restoreFromTrash(asset)
+                restoringAssetIDs.remove(identifier)
+            }
+        }
     }
 
     // MARK: Actions & Title Navigation Bar
@@ -118,6 +117,8 @@ struct TrashView: View {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.body.weight(.semibold))
+                    
+                    .contentShape(Rectangle())
             }
             .foregroundStyle(.primary)
             .accessibilityLabel(settings.t("Close"))
@@ -143,7 +144,9 @@ struct TrashView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) {
                         manager.restoreAllFromTrash()
                     }
                 } label: {
@@ -168,10 +171,56 @@ struct TrashView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.body.weight(.semibold))
+                    
+                    .contentShape(Rectangle())
             }
             .foregroundStyle(.primary)
             .disabled(manager.trashBin.isEmpty)
         }
+    }
+}
+
+private struct TrashQueueItem: View, Equatable {
+    let asset: PHAsset
+    let isRestoring: Bool
+    let detailsLabel: String
+    let restoreLabel: String
+    let onDetails: () -> Void
+    let onRestore: () -> Void
+
+    static func == (lhs: TrashQueueItem, rhs: TrashQueueItem) -> Bool {
+        lhs.asset.localIdentifier == rhs.asset.localIdentifier &&
+            lhs.isRestoring == rhs.isRestoring &&
+            lhs.detailsLabel == rhs.detailsLabel &&
+            lhs.restoreLabel == rhs.restoreLabel
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Button(action: onDetails) {
+                AssetMediaView(asset: asset, contentMode: .fill)
+                    .aspectRatio(1, contentMode: .fill)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isRestoring)
+            .accessibilityLabel(detailsLabel)
+
+            Button(action: onRestore) {
+                Image(systemName: "arrow.uturn.backward.circle.fill")
+                    .font(.title2)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.55))
+                    
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isRestoring)
+            .accessibilityLabel(restoreLabel)
+        }
+        .opacity(isRestoring ? 0 : 1)
+        .scaleEffect(isRestoring ? 0.96 : 1)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }
 

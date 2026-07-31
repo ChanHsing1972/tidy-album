@@ -9,23 +9,17 @@ struct CleaningView: View {
     var onFinish: (() -> Void)?
 
     @State private var selectedAssetID = ""
-    @State private var dragTranslation = CGSize.zero
-    @State private var dragAxis: DragAxis = .undetermined
-    @State private var thresholdHapticSent = false
-    @State private var flyingCards: [FlyingCard] = []
     @State private var detailsSelection: AssetSheetSelection?
     @State private var showsTrash = false
     @State private var activityItems: ActivityItems?
     @State private var isPreparingShare = false
     @State private var isUndoing = false
+    @State private var isExiting = false
     @State private var showsShareError = false
     @State private var backdropImage: UIImage?
     @State private var backdropImageRequestID: PHImageRequestID?
-    @State private var topSafeArea: CGFloat = 0
 
-    private let actionThreshold: CGFloat = 92
-    private let navigationSpring = Animation.spring(duration: 0.44, bounce: 0.16)
-    private let returnSpring = Animation.spring(duration: 0.38, bounce: 0.22)
+    private let navigationSpring = Animation.spring(duration: 0.34, bounce: 0.12)
 
     private var currentIndex: Int? {
         manager.sessionAssets.firstIndex { $0.localIdentifier == selectedAssetID }
@@ -39,19 +33,9 @@ struct CleaningView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // 1. 背景铺满全屏（只有它需要 ignoresSafeArea）
                 backdrop
-                    .frame(
-                        width: UIScreen.main.bounds.width,
-                        height: UIScreen.main.bounds.height
-                    )
-                    .position(
-                        x: UIScreen.main.bounds.width / 2,
-                        y: UIScreen.main.bounds.height / 2
-                    )
-                    .ignoresSafeArea() // 💡 背景独立忽略安全区域
+                    .ignoresSafeArea()
 
-                // 2. 卡片与空状态内容（留在 Safe Area 内）
                 Group {
                     if manager.sessionAssets.isEmpty {
                         if manager.sessionGroupNumber == 0 {
@@ -60,22 +44,26 @@ struct CleaningView: View {
                             completionBridge
                         }
                     } else {
-                        cardStage
+                        CleaningCardStage(
+                            assets: manager.sessionAssets,
+                            selectedAssetID: $selectedAssetID,
+                            hapticsEnabled: settings.hapticsEnabled,
+                            isFavorite: manager.isFavorite,
+                            onDelete: manager.markForDeletion,
+                            onToggleFavorite: manager.markFavorite
+                        )
                     }
                 }
             }
-            // ❌ 删掉这里的 .ignoresSafeArea()，让 cardStage 和工具栏天然避开
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { topSafeArea = proxy.safeAreaInsets.top }
-                }
-            )
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbarBackground(.hidden, for: .bottomBar)
             .toolbar { toolbar }
         }
         .onAppear { selectInitialAsset() }
+        .onDisappear {
+            AssetImagePipeline.shared.cancel(backdropImageRequestID)
+            backdropImageRequestID = nil
+        }
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings).id(selection.id)
         }
@@ -84,7 +72,7 @@ struct CleaningView: View {
         }
         .sheet(item: $activityItems) { items in
             ActivityView(items: items.values)
-                .presentationDetents([.medium, .large]) // 限制弹窗高度，露出更多底层背景
+                .presentationDetents([.medium, .large])
         }
         .alert(settings.t("Unable to Share"), isPresented: $showsShareError) {
             Button(settings.t("Done"), role: .cancel) {}
@@ -110,40 +98,40 @@ struct CleaningView: View {
             manager.preheat(around: index)
         }
         .onChange(of: manager.sessionAssets.count) { _, _ in
-            if !manager.sessionAssets.contains(where: { $0.localIdentifier == selectedAssetID }) {
-                selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? ""
-            }
+            guard !manager.sessionAssets.contains(where: { $0.localIdentifier == selectedAssetID }) else { return }
+            selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? ""
         }
     }
 
     private var backdrop: some View {
-        ZStack {
-            Color.black
-            if let backdropImage {
-                Image(uiImage: backdropImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .scaleEffect(1.16)
-                    .blur(radius: 54, opaque: true)
-                    .transition(.opacity.animation(.easeInOut(duration: 0.52)))
+        GeometryReader { proxy in
+            ZStack {
+                Color.black
+                if let backdropImage {
+                    Image(uiImage: backdropImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .scaleEffect(1.16)
+                        .blur(radius: 54, opaque: true)
+                        .transition(.opacity)
+                }
+                Color.black.opacity(0.34)
             }
-            Color.black.opacity(0.34)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+            .drawingGroup(opaque: true, colorMode: .nonLinear)
         }
-        .animation(.easeInOut(duration: 0.52), value: backdropImage)
-        .clipped()
         .allowsHitTesting(false)
-        .onAppear { loadBackdropImage() }
-        .onChange(of: selectedAssetID) { _, _ in
-                loadBackdropImage()
-            }
+        .animation(.easeInOut(duration: 0.36), value: backdropImage)
+        .task(id: selectedAssetID) { loadBackdropImage() }
     }
 
     private func loadBackdropImage() {
         AssetImagePipeline.shared.cancel(backdropImageRequestID)
+        backdropImageRequestID = nil
         guard let currentAsset else { return }
-//        let screenSize = UIScreen.main.bounds.size
-//        let scale = UIScreen.main.scale
-        let targetSize = CGSize(width: 40, height: 40)
+        let targetSize = CGSize(width: 80, height: 80)
         if let cached = AssetImagePipeline.shared.cachedImage(
             for: currentAsset,
             targetSize: targetSize,
@@ -152,262 +140,25 @@ struct CleaningView: View {
             backdropImage = cached
             return
         }
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .fastFormat
-        options.resizeMode = .fast
-        options.isNetworkAccessAllowed = true
         let requestedID = currentAsset.localIdentifier
-        backdropImageRequestID = PHImageManager.default().requestImage(
+        backdropImageRequestID = AssetImagePipeline.shared.requestImage(
             for: currentAsset,
             targetSize: targetSize,
-            contentMode: .aspectFill,
-            options: options
-        ) { image, _ in
-            guard let image, requestedID == currentAsset.localIdentifier else { return }
-            DispatchQueue.main.async {
-                guard requestedID == currentAsset.localIdentifier else { return }
-                backdropImage = image
-            }
+            contentMode: .aspectFill
+        ) { image in
+            guard requestedID == selectedAssetID else { return }
+            backdropImage = image
         }
     }
 
-    private var cardStage: some View {
-        GeometryReader { proxy in
-            let pageWidth = proxy.size.width + 18
-            let verticalProgress = min(abs(dragTranslation.height) / actionThreshold, 1)
-            ZStack {
-                // 直接循环带 relation 的元组，效率升为 O(1)
-                ForEach(visibleAssetsWithRelation, id: \.asset.localIdentifier) { item in
-                    let asset = item.asset
-                    let relation = item.relation
-                    let isCurrent = relation == 0
-                    
-                    CardView(
-                        asset: asset,
-                        isActive: isCurrent && dragAxis != .vertical,
-                        isFavorite: manager.isFavorite(asset)
-                    )
-                    .overlay {
-                        if isCurrent { actionOverlay }
-                    }
-                    .scaleEffect(cardScale(relation: relation, verticalProgress: verticalProgress))
-                    .offset(
-                        x: CGFloat(relation) * pageWidth + horizontalDrag,
-                        y: cardVerticalOffset(relation: relation, progress: verticalProgress)
-                    )
-                    .opacity(flyingCards.contains(where: { $0.asset.localIdentifier == asset.localIdentifier }) ? 0 : 1)
-                    .zIndex(relation == 0 ? 10 : Double(4 - abs(relation)))
-                    .accessibilityHidden(!isCurrent)
-                }
-                
-                ForEach(flyingCards) { card in
-                    FlyingCardView(card: card, canvasSize: proxy.size) {
-                        flyingCards.removeAll { $0.id == card.id }
-                    }
-                    .zIndex(20)
-                    .allowsHitTesting(false)
-                }
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .contentShape(Rectangle())
-            .gesture(reviewGesture(in: proxy.size))
-        }
-        .padding(.bottom, 38) // 从 6 改为 28，抬高底部间距
-    }
-
-    private var visibleAssets: [PHAsset] {
-        guard let currentIndex else { return [] }
-        let lower = max(0, currentIndex - 1)
-        let upper = min(manager.sessionAssets.count - 1, currentIndex + 1)
-        return Array(manager.sessionAssets[lower...upper])
-    }
-
-    private func relation(of asset: PHAsset) -> Int {
-        guard let currentIndex,
-              let index = manager.sessionAssets.firstIndex(where: { $0.localIdentifier == asset.localIdentifier })
-        else { return 0 }
-        return index - currentIndex
-    }
-
-    private var horizontalDrag: CGFloat {
-        dragAxis == .horizontal ? dragTranslation.width : 0
-    }
-
-    private func cardVerticalOffset(relation: Int, progress: CGFloat) -> CGFloat {
-        if relation == 0, dragAxis == .vertical {
-            let value = dragTranslation.height
-            let magnitude = abs(value)
-            let resisted = magnitude <= actionThreshold
-                ? magnitude
-                : actionThreshold + (magnitude - actionThreshold) * 0.72
-            return value < 0 ? -resisted : resisted
-        }
-        if relation == 1, dragAxis == .vertical {
-            return 18 * (1 - progress)
-        }
-        return 0
-    }
-
-    private func cardScale(relation: Int, verticalProgress: CGFloat) -> CGFloat {
-        if relation == 0, dragAxis == .vertical { return 1 - verticalProgress * 0.018 }
-        if relation == 1, dragAxis == .vertical { return 0.965 + verticalProgress * 0.035 }
-        return 1
-    }
-
-    private func reviewGesture(in size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .local)
-            .onChanged { value in
-                if dragAxis == .undetermined {
-                    let horizontal = abs(value.translation.width)
-                    let vertical = abs(value.translation.height)
-                    guard max(horizontal, vertical) > 8 else { return }
-                    dragAxis = vertical > horizontal * 1.15 ? .vertical : .horizontal
-                }
-                dragTranslation = value.translation
-                if dragAxis == .vertical { updateHaptic(for: value.translation.height) }
-            }
-            .onEnded { value in
-                let resolvedAxis = dragAxis
-                thresholdHapticSent = false
-                switch resolvedAxis {
-                case .vertical:
-                    finishVerticalGesture(value, canvasSize: size)
-                case .horizontal:
-                    finishHorizontalGesture(value, pageWidth: size.width + 18)
-                case .undetermined:
-                    resetGesture()
-                }
-            }
-    }
-
-    private func finishHorizontalGesture(_ value: DragGesture.Value, pageWidth: CGFloat) {
-        let projected = value.predictedEndTranslation.width
-        let trigger = pageWidth * 0.2
-        let direction: Int
-        if projected < -trigger || value.translation.width < -trigger {
-            direction = 1
-        } else if projected > trigger || value.translation.width > trigger {
-            direction = -1
-        } else {
-            withAnimation(returnSpring) { resetGesture() }
-            return
-        }
-        guard let currentIndex else {
-            withAnimation(returnSpring) { resetGesture() }
-            return
-        }
-        let destination = currentIndex + direction
-        guard manager.sessionAssets.indices.contains(destination) else {
-            withAnimation(returnSpring) { resetGesture() }
-            boundaryHaptic()
-            return
-        }
-        withAnimation(navigationSpring) {
-            selectedAssetID = manager.sessionAssets[destination].localIdentifier
-            resetGesture()
-        }
-    }
-
-    private func finishVerticalGesture(_ value: DragGesture.Value, canvasSize: CGSize) {
-        let projected = value.predictedEndTranslation.height
-        let actual = value.translation.height
-        let shouldCommit = abs(actual) >= actionThreshold || abs(projected) >= actionThreshold * 1.35
-        guard shouldCommit else {
-            withAnimation(returnSpring) { resetGesture() }
-            return
-        }
-        commitVerticalAction(direction: projected == 0 ? actual : projected)
-    }
-
-    private func commitVerticalAction(direction: CGFloat) {
-        guard let asset = currentAsset, let index = currentIndex else {
-            withAnimation(returnSpring) { resetGesture() }
-            return
-        }
-        let isDeletion = direction < 0
-        let nextIndex = index + 1
-        let hasNext = manager.sessionAssets.indices.contains(nextIndex)
-        if !isDeletion, !hasNext {
-            manager.markFavorite(asset, at: index)
-            withAnimation(returnSpring) { resetGesture() }
-            return
-        }
-        let nextID: String
-        if hasNext {
-            nextID = manager.sessionAssets[nextIndex].localIdentifier
-        } else if index > 0 {
-            nextID = manager.sessionAssets[index - 1].localIdentifier
-        } else {
-            nextID = ""
-        }
-        let projectedDelta = valueVelocityEstimate(current: dragTranslation.height, projected: direction)
-        flyingCards.append(
-            FlyingCard(
-                asset: asset,
-                startOffset: CGSize(width: 0, height: cardVerticalOffset(relation: 0, progress: 1)),
-                direction: isDeletion ? -1 : 1,
-                initialVelocity: projectedDelta
-            )
-        )
-        withAnimation(navigationSpring) {
-            if isDeletion {
-                manager.markForDeletion(asset, at: index)
-            } else {
-                manager.markFavorite(asset, at: index)
-            }
-            selectedAssetID = nextID
-            resetGesture()
-        }
-    }
-
-    private func valueVelocityEstimate(current: CGFloat, projected: CGFloat) -> CGFloat {
-        min(max(abs(projected - current) / 180, 0.8), 5.5)
-    }
-
-    private func resetGesture() {
-        dragTranslation = .zero
-        dragAxis = .undetermined
-    }
-
-    private func updateHaptic(for translation: CGFloat) {
-        let crossed = abs(translation) >= actionThreshold
-        if crossed, !thresholdHapticSent {
-            thresholdHapticSent = true
-            guard settings.hapticsEnabled else { return }
-            UIImpactFeedbackGenerator(style: translation < 0 ? .rigid : .soft).impactOccurred()
-        } else if !crossed {
-            thresholdHapticSent = false
-        }
-    }
-
-    private func boundaryHaptic() {
-        guard settings.hapticsEnabled else { return }
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.55)
-    }
-
-    private var actionOverlay: some View {
-        let progress = min(abs(dragTranslation.height) / 150, 1)
-        return ZStack {
-            IconOverlayView(
-                icon: "trash.fill",
-                color: .red,
-                progress: dragAxis == .vertical && dragTranslation.height < 0 ? progress : 0
-            )
-            IconOverlayView(
-                icon: (currentAsset.map { manager.isFavorite($0) } ?? false) ? "heart.slash.fill" : "heart.fill",
-                color: .pink,
-                progress: dragAxis == .vertical && dragTranslation.height > 0 ? progress : 0
-            )
-        }
-        .allowsHitTesting(false)
-    }
-
-    // MARK: - Toolbar
+    // MARK: Toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button(action: exitSession) {
-                Image(systemName: "xmark").contentShape(Circle())
+                Image(systemName: "xmark")
+                    
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(settings.t("Close"))
@@ -416,10 +167,11 @@ struct CleaningView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button { showsTrash = true } label: {
                 Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+                    
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .badge(manager.trashBin.count)
-            .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
         }
         ToolbarItemGroup(placement: .bottomBar) {
@@ -428,7 +180,8 @@ struct CleaningView: View {
                     if isUndoing { ProgressView().controlSize(.small) }
                     else { Image(systemName: "arrow.uturn.backward").font(.body.weight(.semibold)) }
                 }
-                .contentShape(Circle())
+                
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!manager.canUndo || isUndoing)
@@ -464,7 +217,8 @@ struct CleaningView: View {
                     if isPreparingShare { ProgressView().controlSize(.small) }
                     else { Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)) }
                 }
-                .contentShape(Circle())
+                
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(currentAsset == nil || isPreparingShare)
@@ -502,7 +256,6 @@ struct CleaningView: View {
             guard let result = await manager.undoLastAction() else { return }
             withAnimation(navigationSpring) {
                 selectedAssetID = result.assetIdentifier
-                resetGesture()
             }
         }
     }
@@ -519,7 +272,8 @@ struct CleaningView: View {
     }
 
     private func exitSession() {
-        manager.endSession()
+        guard !isExiting else { return }
+        isExiting = true
         dismiss()
     }
 
@@ -544,61 +298,322 @@ struct CleaningView: View {
         guard selectedAssetID.isEmpty, let first = manager.sessionAssets.first else { return }
         selectedAssetID = first.localIdentifier
     }
-    
-    private var visibleAssetsWithRelation: [(asset: PHAsset, relation: Int)] {
-        guard let currentIndex else { return [] }
-        let lower = max(0, currentIndex - 1)
-        let upper = min(manager.sessionAssets.count - 1, currentIndex + 1)
-        return (lower...upper).map { i in
-            (manager.sessionAssets[i], i - currentIndex)
+}
+
+// MARK: Gesture Stage
+
+private struct CleaningCardStage: View {
+    let assets: [PHAsset]
+    @Binding var selectedAssetID: String
+    let hapticsEnabled: Bool
+    let isFavorite: (PHAsset) -> Bool
+    let onDelete: (PHAsset, Int) -> Void
+    let onToggleFavorite: (PHAsset, Int) -> Void
+
+    @State private var dragTranslation = CGSize.zero
+    @State private var dragAxis = DragAxis.undetermined
+    @State private var thresholdHapticSent = false
+    @State private var isTransitioning = false
+    @State private var isDeleting = false
+    @State private var transitionTask: Task<Void, Never>?
+
+    private let actionThreshold: CGFloat = 92
+    private let navigationSpring = Animation.spring(duration: 0.3, bounce: 0.1)
+    private let returnSpring = Animation.spring(duration: 0.34, bounce: 0.18)
+
+    private var currentIndex: Int? {
+        assets.firstIndex { $0.localIdentifier == selectedAssetID }
+    }
+
+    private var currentAsset: PHAsset? {
+        guard let currentIndex, assets.indices.contains(currentIndex) else { return nil }
+        return assets[currentIndex]
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let pageWidth = proxy.size.width + 18
+            let verticalProgress = min(abs(dragTranslation.height) / actionThreshold, 1)
+            ZStack {
+                ForEach(visibleAssetsWithRelation, id: \.asset.localIdentifier) { item in
+                    let isCurrent = item.relation == 0
+                    CardView(asset: item.asset, isActive: isCurrent)
+                        .equatable()
+                        .overlay {
+                            if isCurrent { actionOverlay(for: item.asset) }
+                        }
+                        .scaleEffect(cardScale(relation: item.relation, verticalProgress: verticalProgress))
+                        .offset(
+                            x: CGFloat(item.relation) * pageWidth + horizontalDrag,
+                            y: cardVerticalOffset(relation: item.relation, progress: verticalProgress)
+                        )
+                        .zIndex(isCurrent ? 10 : Double(4 - abs(item.relation)))
+                        .accessibilityHidden(!isCurrent)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .contentShape(Rectangle())
+            .gesture(reviewGesture(in: proxy.size))
         }
+        .padding(.bottom, 38)
+        .onDisappear {
+            transitionTask?.cancel()
+            transitionTask = nil
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                clearGestureState()
+                isDeleting = false
+                isTransitioning = false
+            }
+        }
+    }
+
+    private var visibleAssetsWithRelation: [(asset: PHAsset, relation: Int)] {
+        guard let currentIndex, !assets.isEmpty else { return [] }
+        let lower = max(0, currentIndex - 1)
+        let upper = min(assets.count - 1, currentIndex + 1)
+        return (lower...upper).map { (assets[$0], $0 - currentIndex) }
+    }
+
+    private var horizontalDrag: CGFloat {
+        dragAxis == .horizontal ? dragTranslation.width : 0
+    }
+
+    private func cardVerticalOffset(relation: Int, progress: CGFloat) -> CGFloat {
+        if relation == 0, dragAxis == .vertical {
+            if isDeleting { return dragTranslation.height }
+            let value = dragTranslation.height
+            let magnitude = abs(value)
+            let resisted = magnitude <= actionThreshold
+                ? magnitude
+                : actionThreshold + (magnitude - actionThreshold) * 0.58
+            return value < 0 ? -resisted : resisted
+        }
+        if relation == 1, dragAxis == .vertical {
+            return 18 * (1 - progress)
+        }
+        return 0
+    }
+
+    private func cardScale(relation: Int, verticalProgress: CGFloat) -> CGFloat {
+        if relation == 0, dragAxis == .vertical { return 1 - verticalProgress * 0.018 }
+        if relation == 1, dragAxis == .vertical { return 0.965 + verticalProgress * 0.035 }
+        return 1
+    }
+
+    private func reviewGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 10, coordinateSpace: .local)
+            .onChanged { value in
+                guard !isTransitioning else { return }
+                if dragAxis == .undetermined {
+                    let horizontal = abs(value.translation.width)
+                    let vertical = abs(value.translation.height)
+                    guard max(horizontal, vertical) > 10 else { return }
+                    dragAxis = vertical > horizontal * 1.15 ? .vertical : .horizontal
+                }
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) {
+                    switch dragAxis {
+                    case .horizontal:
+                        dragTranslation = CGSize(width: value.translation.width, height: 0)
+                    case .vertical:
+                        dragTranslation = CGSize(width: 0, height: value.translation.height)
+                    case .undetermined:
+                        break
+                    }
+                }
+                if dragAxis == .vertical { updateHaptic(for: value.translation.height) }
+            }
+            .onEnded { value in
+                guard !isTransitioning else { return }
+                thresholdHapticSent = false
+                switch dragAxis {
+                case .vertical:
+                    finishVerticalGesture(value, canvasSize: size)
+                case .horizontal:
+                    finishHorizontalGesture(value, pageWidth: size.width + 18)
+                case .undetermined:
+                    resetGesture(animated: true)
+                }
+            }
+    }
+
+    private func finishHorizontalGesture(_ value: DragGesture.Value, pageWidth: CGFloat) {
+        let projected = value.predictedEndTranslation.width
+        let trigger = pageWidth * 0.2
+        let direction: Int
+        if projected < -trigger || value.translation.width < -trigger {
+            direction = 1
+        } else if projected > trigger || value.translation.width > trigger {
+            direction = -1
+        } else {
+            resetGesture(animated: true)
+            return
+        }
+        guard let currentIndex else {
+            resetGesture(animated: true)
+            return
+        }
+        let destination = currentIndex + direction
+        guard assets.indices.contains(destination) else {
+            resetGesture(animated: true)
+            boundaryHaptic()
+            return
+        }
+
+        isTransitioning = true
+        let destinationID = assets[destination].localIdentifier
+        withAnimation(navigationSpring) {
+            dragTranslation = CGSize(width: -CGFloat(direction) * pageWidth, height: 0)
+        }
+        scheduleTransition(after: .milliseconds(300)) {
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                selectedAssetID = destinationID
+                clearGestureState()
+                isTransitioning = false
+            }
+        }
+    }
+
+    private func finishVerticalGesture(_ value: DragGesture.Value, canvasSize: CGSize) {
+        let projected = value.predictedEndTranslation.height
+        let actual = value.translation.height
+        let resolved = projected == 0 ? actual : projected
+        let shouldCommit = abs(actual) >= actionThreshold || abs(projected) >= actionThreshold * 1.35
+        guard shouldCommit else {
+            resetGesture(animated: true)
+            return
+        }
+        if resolved < 0 {
+            commitDeletion(canvasSize: canvasSize)
+        } else {
+            commitFavorite()
+        }
+    }
+
+    private func commitDeletion(canvasSize: CGSize) {
+        guard let asset = currentAsset, let index = currentIndex else {
+            resetGesture(animated: true)
+            return
+        }
+        let nextID: String
+        if assets.indices.contains(index + 1) {
+            nextID = assets[index + 1].localIdentifier
+        } else if index > 0 {
+            nextID = assets[index - 1].localIdentifier
+        } else {
+            nextID = ""
+        }
+
+        let startOffset = cardVerticalOffset(relation: 0, progress: 1)
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            isTransitioning = true
+            isDeleting = true
+            dragTranslation = CGSize(width: 0, height: startOffset)
+        }
+        withAnimation(.easeOut(duration: 0.24)) {
+            dragTranslation = CGSize(width: 0, height: -max(canvasSize.height * 1.18, 760))
+        }
+        scheduleTransition(after: .milliseconds(240)) {
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                onDelete(asset, index)
+                selectedAssetID = nextID
+                clearGestureState()
+                isDeleting = false
+                isTransitioning = false
+            }
+        }
+    }
+
+    private func commitFavorite() {
+        guard let asset = currentAsset, let index = currentIndex else {
+            resetGesture(animated: true)
+            return
+        }
+        isTransitioning = true
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            onToggleFavorite(asset, index)
+        }
+        withAnimation(returnSpring) {
+            clearGestureState()
+        }
+        scheduleTransition(after: .milliseconds(340)) {
+            isTransitioning = false
+        }
+    }
+
+    private func resetGesture(animated: Bool) {
+        if animated {
+            withAnimation(returnSpring) { clearGestureState() }
+        } else {
+            clearGestureState()
+        }
+    }
+
+    private func clearGestureState() {
+        dragTranslation = .zero
+        dragAxis = .undetermined
+        thresholdHapticSent = false
+    }
+
+    private func scheduleTransition(
+        after duration: Duration,
+        action: @escaping @MainActor () -> Void
+    ) {
+        transitionTask?.cancel()
+        transitionTask = Task { @MainActor in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            action()
+            transitionTask = nil
+        }
+    }
+
+    private func updateHaptic(for translation: CGFloat) {
+        let crossed = abs(translation) >= actionThreshold
+        if crossed, !thresholdHapticSent {
+            thresholdHapticSent = true
+            guard hapticsEnabled else { return }
+            UIImpactFeedbackGenerator(style: translation < 0 ? .rigid : .soft).impactOccurred()
+        } else if !crossed {
+            thresholdHapticSent = false
+        }
+    }
+
+    private func boundaryHaptic() {
+        guard hapticsEnabled else { return }
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.55)
+    }
+
+    private func actionOverlay(for asset: PHAsset) -> some View {
+        let progress = min(abs(dragTranslation.height) / 150, 1)
+        return ZStack {
+            IconOverlayView(
+                icon: "trash.fill",
+                color: .red,
+                progress: dragAxis == .vertical && dragTranslation.height < 0 ? progress : 0
+            )
+            IconOverlayView(
+                icon: isFavorite(asset) ? "heart.slash.fill" : "heart.fill",
+                color: .pink,
+                progress: dragAxis == .vertical && dragTranslation.height > 0 ? progress : 0
+            )
+        }
+        .allowsHitTesting(false)
     }
 }
 
 private enum DragAxis { case undetermined, horizontal, vertical }
-
-private struct FlyingCard: Identifiable {
-    let id = UUID()
-    let asset: PHAsset
-    let startOffset: CGSize
-    let direction: CGFloat
-    let initialVelocity: CGFloat
-}
-
-private struct FlyingCardView: View {
-    let card: FlyingCard
-    let canvasSize: CGSize
-    let completion: () -> Void
-    @State private var offset: CGSize
-    @State private var scale: CGFloat = 0.99
-    @State private var opacity: CGFloat = 1
-
-    init(card: FlyingCard, canvasSize: CGSize, completion: @escaping () -> Void) {
-        self.card = card
-        self.canvasSize = canvasSize
-        self.completion = completion
-        _offset = State(initialValue: card.startOffset)
-    }
-
-    var body: some View {
-        CardView(asset: card.asset, isActive: false)
-            .frame(width: canvasSize.width, height: canvasSize.height)
-            .scaleEffect(scale)
-            .offset(offset)
-            .opacity(opacity)
-            .task {
-                await Task.yield()
-                withAnimation(.interpolatingSpring(mass: 0.72, stiffness: 92, damping: 13, initialVelocity: card.initialVelocity)) {
-                    offset.height = card.direction * max(canvasSize.height * 1.35, 760)
-                    scale = 0.94
-                }
-                withAnimation(.easeOut(duration: 0.3).delay(0.14)) { opacity = 0 }
-                try? await Task.sleep(for: .milliseconds(520))
-                guard !Task.isCancelled else { return }
-                completion()
-            }
-    }
-}
 
 private struct AssetSheetSelection: Identifiable {
     let asset: PHAsset
@@ -617,7 +632,7 @@ private struct AnimatedProgressBar: View {
                     .frame(width: max(value > 0 ? 3 : 0, proxy.size.width * min(max(value, 0), 1)))
             }
         }
-        .animation(.spring(duration: 0.42, bounce: 0.12), value: value)
+        .animation(.spring(duration: 0.36, bounce: 0.1), value: value)
         .accessibilityValue(Text(value, format: .percent.precision(.fractionLength(0))))
     }
 }

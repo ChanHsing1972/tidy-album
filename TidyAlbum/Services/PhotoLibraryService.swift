@@ -18,6 +18,12 @@ final class PhotoLibraryService: PhotoLibraryServiceProtocol {
     // MARK: - 资源获取 (Fetching)
 
     func fetchAssets(filter: PhotoFilter) async -> [PHAsset] {
+        await Task.detached(priority: .userInitiated) {
+            Self.fetchAssetsSynchronously(filter: filter)
+        }.value
+    }
+
+    nonisolated private static func fetchAssetsSynchronously(filter: PhotoFilter) -> [PHAsset] {
         let options = PHFetchOptions()
         options.sortDescriptors = [
             NSSortDescriptor(key: "creationDate", ascending: false)
@@ -93,10 +99,12 @@ final class PhotoLibraryService: PhotoLibraryServiceProtocol {
 
     func fetchAssets(localIdentifiers: [String]) async -> [PHAsset] {
         guard !localIdentifiers.isEmpty else { return [] }
-        let result = PHAsset.fetchAssets(withLocalIdentifiers: localIdentifiers, options: nil)
-        var assets: [PHAsset] = []
-        result.enumerateObjects { asset, _, _ in assets.append(asset) }
-        return assets
+        return await Task.detached(priority: .userInitiated) {
+            let result = PHAsset.fetchAssets(withLocalIdentifiers: localIdentifiers, options: nil)
+            var assets: [PHAsset] = []
+            result.enumerateObjects { asset, _, _ in assets.append(asset) }
+            return assets
+        }.value
     }
 
     // MARK: - 资源操作 (Asset Operations)

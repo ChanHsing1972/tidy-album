@@ -24,16 +24,17 @@ struct CleanHomeView: View {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showsTrash = true } label: {
                             Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+                                
+                                .contentShape(Rectangle())
                         }
                         .badge(manager.trashBin.count)
                         .buttonStyle(.plain)
-                        .id("home-trash-btn-\(manager.trashBin.count)")
                         .accessibilityLabel(settings.t("Trash"))
                     }
                 }
             }
         }
-        .fullScreenCover(isPresented: $showsCleaning) {
+        .fullScreenCover(isPresented: $showsCleaning, onDismiss: manager.endSession) {
             CleaningView(manager: manager, settings: settings) { showsSummary = true }
         }
         .sheet(isPresented: $showsTrash) {
