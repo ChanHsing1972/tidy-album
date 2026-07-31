@@ -26,7 +26,7 @@ struct CardView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(.white.opacity(0.16), lineWidth: 0.5)
             }
-            .shadow(color: .black.opacity(0.28), radius: 24, y: 12)
+            .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

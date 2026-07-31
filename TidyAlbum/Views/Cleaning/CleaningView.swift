@@ -78,6 +78,7 @@ struct CleaningView: View {
         }
         .sheet(item: $activityItems) { items in
             ActivityView(items: items.values)
+                .presentationDetents([.medium, .large]) // 限制弹窗高度，露出更多底层背景
         }
         .alert(settings.t("Unable to Share"), isPresented: $showsShareError) {
             Button(settings.t("Done"), role: .cancel) {}
@@ -102,11 +103,10 @@ struct CleaningView: View {
             manager.recordViewed(manager.sessionAssets[index])
             manager.preheat(around: index)
         }
-        .onChange(of: manager.sessionAssets.map(\.localIdentifier)) { _, identifiers in
-            guard !identifiers.isEmpty, !identifiers.contains(selectedAssetID) else {
-                return
+        .onChange(of: manager.sessionAssets.count) { _, _ in
+            if !manager.sessionAssets.contains(where: { $0.localIdentifier == selectedAssetID }) {
+                selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? ""
             }
-            selectedAssetID = identifiers[0]
         }
     }
 
@@ -127,15 +127,17 @@ struct CleaningView: View {
         .clipped()
         .allowsHitTesting(false)
         .onAppear { loadBackdropImage() }
-        .onChange(of: selectedAssetID) { _, _ in loadBackdropImage() }
+        .onChange(of: selectedAssetID) { _, _ in
+                loadBackdropImage()
+            }
     }
 
     private func loadBackdropImage() {
         AssetImagePipeline.shared.cancel(backdropImageRequestID)
         guard let currentAsset else { return }
-        let screenSize = UIScreen.main.bounds.size
-        let scale = UIScreen.main.scale
-        let targetSize = CGSize(width: screenSize.width * scale / 3, height: screenSize.height * scale / 3)
+//        let screenSize = UIScreen.main.bounds.size
+//        let scale = UIScreen.main.scale
+        let targetSize = CGSize(width: 40, height: 40)
         if let cached = AssetImagePipeline.shared.cachedImage(
             for: currentAsset,
             targetSize: targetSize,
@@ -145,7 +147,7 @@ struct CleaningView: View {
             return
         }
         let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
+        options.deliveryMode = .fastFormat
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
         let requestedID = currentAsset.localIdentifier
@@ -168,9 +170,12 @@ struct CleaningView: View {
             let pageWidth = proxy.size.width + 18
             let verticalProgress = min(abs(dragTranslation.height) / actionThreshold, 1)
             ZStack {
-                ForEach(visibleAssets, id: \.localIdentifier) { asset in
-                    let relation = relation(of: asset)
+                // 直接循环带 relation 的元组，效率升为 O(1)
+                ForEach(visibleAssetsWithRelation, id: \.asset.localIdentifier) { item in
+                    let asset = item.asset
+                    let relation = item.relation
                     let isCurrent = relation == 0
+                    
                     CardView(
                         asset: asset,
                         isActive: isCurrent && dragAxis != .vertical,
@@ -188,6 +193,7 @@ struct CleaningView: View {
                     .zIndex(relation == 0 ? 10 : Double(4 - abs(relation)))
                     .accessibilityHidden(!isCurrent)
                 }
+                
                 ForEach(flyingCards) { card in
                     FlyingCardView(card: card, canvasSize: proxy.size) {
                         flyingCards.removeAll { $0.id == card.id }
@@ -532,6 +538,15 @@ struct CleaningView: View {
     private func selectInitialAsset() {
         guard selectedAssetID.isEmpty, let first = manager.sessionAssets.first else { return }
         selectedAssetID = first.localIdentifier
+    }
+    
+    private var visibleAssetsWithRelation: [(asset: PHAsset, relation: Int)] {
+        guard let currentIndex else { return [] }
+        let lower = max(0, currentIndex - 1)
+        let upper = min(manager.sessionAssets.count - 1, currentIndex + 1)
+        return (lower...upper).map { i in
+            (manager.sessionAssets[i], i - currentIndex)
+        }
     }
 }
 
