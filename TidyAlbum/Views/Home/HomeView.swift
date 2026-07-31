@@ -39,16 +39,16 @@ struct CleanHomeView: View {
         .sheet(isPresented: $showsTrash) {
             TrashView(manager: manager, settings: settings)
         }
-        .sheet(isPresented: $showsSummary) {
-            SummaryView(manager: manager, settings: settings, onHome: { showsSummary = false })
-        }
+//        .sheet(isPresented: $showsSummary) {
+//            SummaryView(manager: manager, settings: settings, onHome: { showsSummary = false })
+//        }
     }
 
     private var cleanContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if manager.isLimited { limitedAccessBanner }
-                librarySummary
+//                librarySummary
                 filterSection
                 startButton
                 privacyFooter
@@ -101,16 +101,15 @@ struct CleanHomeView: View {
     }
 
     // MARK: Collections
-
+    
     private var filterSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(settings.t("Choose a collection"))
-                    .font(.headline)
-                Spacer()
-                if manager.isLoading { ProgressView().controlSize(.small) }
-            }
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            let columns = [
+                GridItem(.flexible(), spacing: 10),
+                GridItem(.flexible(), spacing: 10)
+            ]
+            
+            LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(PhotoFilter.allCases) { filter in
                     FilterCardView(
                         filter: filter,
@@ -161,7 +160,6 @@ struct CleanHomeView: View {
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.capsule)
-        .disabled(!manager.canBeginSession)
         .transaction { $0.animation = nil }
     }
 

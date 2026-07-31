@@ -35,13 +35,13 @@ struct FilterCardView: View {
                 }
             }
             .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 90, alignment: .leading)
             .background(
                 isSelected ? Color.blue.opacity(0.14) : Color(uiColor: .secondarySystemGroupedBackground)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .stroke(isSelected ? Color.blue : Color.white.opacity(0.05), lineWidth: 1)
             }
         }

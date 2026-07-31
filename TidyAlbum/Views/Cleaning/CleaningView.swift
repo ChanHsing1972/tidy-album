@@ -43,7 +43,7 @@ struct CleaningView: View {
                     Color.clear
                         .onAppear {
                             Task {
-                                try? await Task.sleep(for: .seconds(0.5))
+                                try? await Task.sleep(for: .seconds(0.4))
                                 dismiss()
                                 onFinish?()
                             }
@@ -93,14 +93,16 @@ struct CleaningView: View {
         }
     }
 
-    // MARK: - Background (single layer, no animation)
+    // MARK: - Background (single layer, crossfade transition)
 
     @ViewBuilder
     private var backdrop: some View {
         if let asset = currentAsset {
             AssetMediaView(asset: asset, contentMode: .fill, showsVideoBadge: false)
+                .id("backdrop-\(asset.localIdentifier)")
                 .blur(radius: 60)
                 .overlay(Color.black.opacity(0.35))
+                .transition(.opacity)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         } else {
@@ -120,6 +122,7 @@ struct CleaningView: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        .animation(.easeInOut(duration: 0.55), value: currentAsset?.localIdentifier)
         .simultaneousGesture(verticalActionGesture)
     }
 
@@ -267,67 +270,63 @@ struct CleaningView: View {
             .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
         }
-        // Bottom bar — native placement, system glass effect
+        // Bottom bar — each button as a separate item
         ToolbarItem(placement: .bottomBar) {
-            HStack {
-                Button {
-                    Task {
-                        if let result = await manager.undoLastAction() {
-                            withAnimation(spring) {
-                                selectedAssetID = result.assetIdentifier
-                                verticalOffset = 0
-                            }
+            Button {
+                Task {
+                    if let result = await manager.undoLastAction() {
+                        withAnimation(spring) {
+                            selectedAssetID = result.assetIdentifier
+                            verticalOffset = 0
                         }
                     }
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
                 }
-                .buttonStyle(.plain)
-                .disabled(!manager.canUndo)
-                .opacity(manager.canUndo ? 1 : 0.35)
-                .accessibilityLabel(settings.t("Undo"))
-
-                Spacer()
-
-                if let currentAsset {
-                    Button {
-                        detailsSelection = AssetSheetSelection(asset: currentAsset)
-                    } label: {
-                        HStack(spacing: 8) {
-                            VStack(spacing: 1) {
-                                Text(currentAsset.creationDate?.formatted(date: .abbreviated, time: .omitted) ?? "—")
-                                    .font(.caption.weight(.semibold))
-                                Text("\(currentAsset.pixelWidth) × \(currentAsset.pixelHeight)")
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                            if manager.isFavorite(currentAsset) {
-                                Image(systemName: "heart.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.pink)
-                            }
-                        }
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(settings.t("Details"))
-                }
-
-                Spacer()
-
-                Button { prepareShare() } label: {
-                    if isPreparingShare {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(currentAsset == nil || isPreparingShare)
-                .opacity(currentAsset == nil ? 0.35 : 1)
-                .accessibilityLabel(settings.t("Share"))
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
             }
+            .buttonStyle(.plain)
+            .disabled(!manager.canUndo)
+            .opacity(manager.canUndo ? 1 : 0.35)
+            .accessibilityLabel(settings.t("Undo"))
+        }
+        ToolbarItem(placement: .bottomBar) {
+            if let currentAsset {
+                Button {
+                    detailsSelection = AssetSheetSelection(asset: currentAsset)
+                } label: {
+                    HStack(spacing: 8) {
+                        VStack(spacing: 1) {
+                            Text(currentAsset.creationDate?.formatted(date: .abbreviated, time: .omitted) ?? "—")
+                                .font(.caption.weight(.semibold))
+                            Text("\(currentAsset.pixelWidth) × \(currentAsset.pixelHeight)")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        if manager.isFavorite(currentAsset) {
+                            Image(systemName: "heart.fill")
+                                .font(.caption)
+                                .foregroundStyle(.pink)
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(settings.t("Details"))
+            }
+        }
+        ToolbarItem(placement: .bottomBar) {
+            Button { prepareShare() } label: {
+                if isPreparingShare {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(currentAsset == nil || isPreparingShare)
+            .opacity(currentAsset == nil ? 0.35 : 1)
+            .accessibilityLabel(settings.t("Share"))
         }
     }
 

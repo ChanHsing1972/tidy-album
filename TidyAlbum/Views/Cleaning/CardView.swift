@@ -15,16 +15,6 @@ struct CardView: View {
             allowsPlayback: true,
             isActive: isActive
         )
-            .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-            .overlay(alignment: .topTrailing) {
-                if isFavorite {
-                    Image(systemName: "heart.fill")
-                        .font(.title3)
-                        .foregroundStyle(.pink)
-                        .padding(12)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .padding(14)
-                }
-            }
+            .mask(RoundedRectangle(cornerRadius: 32, style: .continuous))
     }
 }

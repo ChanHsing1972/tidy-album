@@ -19,8 +19,7 @@ struct TrashView: View {
                 if manager.trashBin.isEmpty { emptyState } else { queueContent }
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(settings.t("Trash"))
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline) // 保持居中布局
             .toolbar { toolbar }
             .overlay {
                 if manager.isDeleting {
@@ -72,31 +71,15 @@ struct TrashView: View {
 
     private var queueContent: some View {
         ScrollView {
-            queueSummary
+            // 移除了原先的 queueSummary 区域，让照片直接顶上
             LazyVGrid(columns: columns, spacing: 3) {
                 ForEach(manager.trashBin, id: \.localIdentifier) { asset in
                     queueItem(asset)
                 }
             }
+            .padding(.horizontal, 4)
+            .padding(.top, 8)
         }
-    }
-
-    private var queueSummary: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(manager.trashBin.count) \(settings.t("Items"))")
-                    .font(.headline.monospacedDigit())
-                Text("\(settings.t("About")) \(ByteCountFormatter.string(fromByteCount: manager.pendingDeletionBytes, countStyle: .file))")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Image(systemName: "internaldrive")
-                .font(.title2)
-                .foregroundStyle(.blue)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
     }
 
     private func queueItem(_ asset: PHAsset) -> some View {
@@ -127,16 +110,36 @@ struct TrashView: View {
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 
-    // MARK: Actions
+    // MARK: Actions & Title Navigation Bar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        // 左边关闭按钮
         ToolbarItem(placement: .topBarLeading) {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.body.weight(.semibold))
             }
+            .foregroundStyle(.primary)
             .accessibilityLabel(settings.t("Close"))
         }
+        
+        // 中间自定义标题（“待删除” + 数量与体积）
+        ToolbarItem(placement: .principal) {
+            VStack(spacing: 2) {
+                Text(settings.t("Trash"))
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                
+                if !manager.trashBin.isEmpty {
+                    let formattedBytes = ByteCountFormatter.string(fromByteCount: manager.pendingDeletionBytes, countStyle: .file)
+                    Text("\(manager.trashBin.count) \(settings.t("Items")) • \(formattedBytes)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        // 右边三个点菜单
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
@@ -146,19 +149,27 @@ struct TrashView: View {
                 } label: {
                     Label(settings.t("Restore All"), systemImage: "arrow.uturn.backward")
                 }
-                .buttonStyle(.plain)
+                .tint(.primary)
                 .disabled(manager.trashBin.isEmpty || manager.isDeleting)
+
                 Button(role: .destructive) {
                     showsDeleteConfirmation = true
                 } label: {
-                    Label(settings.t("Delete All"), systemImage: "trash")
+                    Label {
+                        Text(settings.t("Delete All"))
+                    } icon: {
+                        Image(systemName: "trash")
+                            .foregroundStyle(.red)
+                    }
                 }
-                
+                .tint(.red)
                 .disabled(manager.trashBin.isEmpty || manager.isDeleting)
+
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis")
                     .font(.body.weight(.semibold))
             }
+            .foregroundStyle(.primary)
             .disabled(manager.trashBin.isEmpty)
         }
     }
