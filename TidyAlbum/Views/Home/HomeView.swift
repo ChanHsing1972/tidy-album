@@ -29,6 +29,7 @@ struct CleanHomeView: View {
                             Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
                         }
                         .badge(manager.trashBin.count)
+                        .id("home-trash-btn-\(manager.trashBin.count)")
                         .accessibilityLabel(settings.t("Trash"))
                     }
                 }

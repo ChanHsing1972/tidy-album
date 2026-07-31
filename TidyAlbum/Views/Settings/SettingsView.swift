@@ -34,6 +34,13 @@ struct SettingsView: View {
                     } label: {
                         Label(settings.t("Photo Order"), systemImage: "arrow.up.arrow.down")
                     }
+                    Picker(selection: $settings.progressDisplayMode) {
+                        Text(settings.t("Numbers Only")).tag(ProgressDisplayMode.textOnly)
+                        Text(settings.t("Progress Bar Only")).tag(ProgressDisplayMode.barOnly)
+                        Text(settings.t("Show Both")).tag(ProgressDisplayMode.both)
+                    } label: {
+                        Label(settings.t("Progress Display"), systemImage: "info.circle")
+                    }
                 } header: {
                     Text(settings.t("Cleaning Preferences"))
                 } footer: {

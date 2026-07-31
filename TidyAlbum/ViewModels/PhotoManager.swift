@@ -117,6 +117,8 @@ final class PhotoManager: NSObject, ObservableObject {
     func markForDeletion(_ asset: PHAsset, at index: Int) {
         guard !trashBin.contains(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
         trashBin.append(asset)
+        // Immediately remove from session so it disappears from the browsing list
+        removeFromSession(at: index)
         if settings.deletionMode == .appTrash {
             history.append(ReviewAction(id: UUID(), asset: asset, index: index, kind: .deletion))
         } else {
@@ -127,16 +129,45 @@ final class PhotoManager: NSObject, ObservableObject {
 
     func markFavorite(_ asset: PHAsset, at index: Int) {
         let previous = asset.isFavorite
+        let target = !previous
         let actionID = UUID()
-        history.append(ReviewAction(id: actionID, asset: asset, index: index, kind: .favorite(previous: previous, target: !previous)))
+        let assetID = asset.localIdentifier
+        history.append(ReviewAction(id: actionID, asset: asset, index: index, kind: .favorite(previous: previous, target: target)))
         objectWillChange.send()
         Task {
             do {
-                try await photoService.setFavorite(!previous, for: asset)
+                try await photoService.setFavorite(target, for: asset)
+                // Re-fetch the asset to get a fresh instance with updated isFavorite
+                let freshAsset = await fetchSingleAsset(assetID)
+                await MainActor.run {
+                    if let fresh = freshAsset {
+                        replaceAssetInArrays(fresh)
+                    }
+                    objectWillChange.send()
+                }
             } catch {
                 history.removeAll { $0.id == actionID }
                 objectWillChange.send()
             }
+        }
+    }
+
+    private func fetchSingleAsset(_ identifier: String) async -> PHAsset? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
+                continuation.resume(returning: result.firstObject)
+            }
+        }
+    }
+
+    private func replaceAssetInArrays(_ freshAsset: PHAsset) {
+        let id = freshAsset.localIdentifier
+        if let idx = sessionAssets.firstIndex(where: { $0.localIdentifier == id }) {
+            sessionAssets[idx] = freshAsset
+        }
+        if let idx = assets.firstIndex(where: { $0.localIdentifier == id }) {
+            assets[idx] = freshAsset
         }
     }
 
@@ -145,11 +176,34 @@ final class PhotoManager: NSObject, ObservableObject {
         switch action.kind {
         case .deletion:
             trashBin.removeAll { $0.localIdentifier == action.asset.localIdentifier }
+            // Re-insert the restored asset into session at the original position
+            reinsertIntoSession(action.asset, at: action.index)
         case let .favorite(previous, _):
             try? await photoService.setFavorite(previous, for: action.asset)
+            let freshAsset = await fetchSingleAsset(action.asset.localIdentifier)
+            await MainActor.run {
+                if let fresh = freshAsset {
+                    replaceAssetInArrays(fresh)
+                }
+                objectWillChange.send()
+            }
         }
         objectWillChange.send()
         return action.index
+    }
+
+    // MARK: Session Asset Management
+
+    private func removeFromSession(at index: Int) {
+        guard sessionAssets.indices.contains(index) else { return }
+        sessionAssets.remove(at: index)
+    }
+
+    private func reinsertIntoSession(_ asset: PHAsset, at index: Int) {
+        let clampedIndex = min(index, sessionAssets.count)
+        // Avoid duplicates
+        guard !sessionAssets.contains(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
+        sessionAssets.insert(asset, at: clampedIndex)
     }
 
     // MARK: Pending Deletion
@@ -220,7 +274,10 @@ private struct ReviewAction {
 extension PhotoManager: PHPhotoLibraryChangeObserver {
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         Task { @MainActor in
+            // Refresh assets to pick up external changes (like favoriting from another app)
             fetchPhotos()
+            // Also refresh session assets
+            objectWillChange.send()
         }
     }
 }

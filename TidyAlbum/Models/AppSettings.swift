@@ -33,6 +33,14 @@ enum PhotoSortOrder: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum ProgressDisplayMode: String, CaseIterable, Identifiable {
+    case textOnly
+    case barOnly
+    case both
+
+    var id: String { rawValue }
+}
+
 // MARK: - Settings Store
 
 @MainActor
@@ -42,6 +50,7 @@ final class SettingsStore: ObservableObject {
         static let haptics = "settings.haptics"
         static let deletionMode = "settings.deletionMode"
         static let sortOrder = "settings.sortOrder"
+        static let progressDisplay = "settings.progressDisplay"
     }
 
     @Published var language: AppLanguage {
@@ -60,6 +69,10 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(sortOrder.rawValue, forKey: Key.sortOrder) }
     }
 
+    @Published var progressDisplayMode: ProgressDisplayMode {
+        didSet { defaults.set(progressDisplayMode.rawValue, forKey: Key.progressDisplay) }
+    }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -68,5 +81,6 @@ final class SettingsStore: ObservableObject {
         hapticsEnabled = defaults.object(forKey: Key.haptics) as? Bool ?? true
         deletionMode = DeletionMode(rawValue: defaults.string(forKey: Key.deletionMode) ?? "") ?? .appTrash
         sortOrder = PhotoSortOrder(rawValue: defaults.string(forKey: Key.sortOrder) ?? "") ?? .newestFirst
+        progressDisplayMode = ProgressDisplayMode(rawValue: defaults.string(forKey: Key.progressDisplay) ?? "") ?? .both
     }
 }

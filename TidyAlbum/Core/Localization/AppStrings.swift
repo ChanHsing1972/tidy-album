@@ -42,7 +42,9 @@ enum AppStrings {
         "Open Settings": "打开设置", "Items": "项", "Today": "今天", "This Week": "本周",
         "All processing stays on this iPhone or iPad.": "所有处理均保留在这台 iPhone 或 iPad 上。",
         "Session Complete": "清理完成", "You've cleaned up your album!": "你已整理过相册！",
-        "Deleted": "已删除", "In Trash": "待删除", "Back to Home": "返回首页"
+        "Deleted": "已删除", "In Trash": "待删除", "Back to Home": "返回首页",
+        "Progress Display": "进度展示", "Numbers Only": "仅数字", "Progress Bar Only": "仅进度条",
+        "Show Both": "均展示"
     ]
 }
 
