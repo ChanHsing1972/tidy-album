@@ -1,106 +1,146 @@
 import SwiftUI
 
-// MARK: - 摘要视图 (Summary View)
-/// 清理会话结束后的总结页面，展示本次会话的统计数据。
+// MARK: - Session Summary
+
 struct SummaryView: View {
-
-    // MARK: 依赖
-
     @ObservedObject var manager: PhotoManager
     @ObservedObject var settings: SettingsStore
-
-    // MARK: 回调
-
-    /// 返回首页的回调
     var onHome: () -> Void
 
-    // MARK: - Body
+    @State private var showsTrash = false
+
+    private var summary: CleaningSessionSummary { manager.sessionSummary }
 
     var body: some View {
-        VStack(spacing: DesignTokens.Spacing.section) {
-            Spacer()
-
-            completionIcon
-            completionTitle
-            statsSection
-
-            Spacer()
-
-            homeButton
-        }
-    }
-
-    // MARK: - 完成图标 (Completion Icon)
-
-    private var completionIcon: some View {
-        Image(systemName: "sparkles")
-            .font(DesignTokens.Typography.completeIcon)
-            .foregroundStyle(DesignTokens.Colors.gradientSparkle)
-            .padding()
-            .background(
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .frame(
-                        width: DesignTokens.Dimensions.summaryIconCircleSize,
-                        height: DesignTokens.Dimensions.summaryIconCircleSize
-                    )
-            )
-    }
-
-    // MARK: - 完成标题 (Completion Title)
-
-    private var completionTitle: some View {
-        VStack(spacing: 10) {
-            Text(settings.t("Session Complete"))
-                .font(DesignTokens.Typography.largeTitle)
-                .foregroundColor(DesignTokens.Colors.textPrimary)
-
-            Text(settings.t("You've cleaned up your album!"))
-                .font(.body)
-                .foregroundColor(DesignTokens.Colors.textSecondary)
-        }
-    }
-
-    // MARK: - 统计区域 (Stats)
-
-    private var statsSection: some View {
-        HStack(spacing: DesignTokens.Spacing.extraLarge) {
-            VStack {
-                Text("\(manager.analytics.statistics.cleanedCount)")
-                    .font(DesignTokens.Typography.displayNumber)
-                    .foregroundColor(DesignTokens.Colors.accentRed)
-                Text(settings.t("Deleted"))
-                    .font(DesignTokens.Typography.caption)
-                    .foregroundColor(DesignTokens.Colors.textSecondary)
-            }
-
-            VStack {
-                Text("\(manager.trashBin.count)")
-                    .font(DesignTokens.Typography.displayNumber)
-                    .foregroundColor(DesignTokens.Colors.textPrimary)
-                Text(settings.t("In Trash"))
-                    .font(DesignTokens.Typography.caption)
-                    .foregroundColor(DesignTokens.Colors.textSecondary)
-            }
-        }
-        .padding(DesignTokens.Spacing.section)
-        .background(.ultraThinMaterial)
-        .cornerRadius(DesignTokens.CornerRadius.large)
-    }
-
-    // MARK: - 返回首页按钮 (Home Button)
-
-    private var homeButton: some View {
-        Button(action: onHome) {
-            Text(settings.t("Back to Home"))
-                .font(.headline)
-                .foregroundColor(DesignTokens.Colors.textOnPrimary)
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 26) {
+                    completionHeader
+                    selectedSpace
+                    sessionMetrics
+                    if !manager.trashBin.isEmpty { pendingDeletionButton }
+                }
+                .frame(maxWidth: 620)
+                .padding(.horizontal, 20)
+                .padding(.top, 24)
+                .padding(.bottom, 100)
                 .frame(maxWidth: .infinity)
-                .frame(height: DesignTokens.Dimensions.secondaryButtonHeight)
-                .background(DesignTokens.Colors.textPrimary)
-                .cornerRadius(DesignTokens.CornerRadius.xLarge)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle(settings.t("Cleanup Summary"))
+            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom, spacing: 0) { doneBar }
         }
-        .padding(.horizontal, DesignTokens.Spacing.extraLarge)
-        .padding(.bottom, DesignTokens.Spacing.extraLarge)
+        .sheet(isPresented: $showsTrash) {
+            TrashView(manager: manager, settings: settings)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var completionHeader: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 30, weight: .bold))
+                .frame(width: 72, height: 72)
+                .background(.primary.opacity(0.08), in: Circle())
+            Text(settings.t("Session Complete"))
+                .font(.title2.bold())
+            Text(settings.t("You reviewed every item in this session."))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var selectedSpace: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(settings.t("Space Selected"))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(ByteCountFormatter.string(fromByteCount: summary.estimatedReclaimBytes, countStyle: .file))
+                .font(.system(size: 40, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .contentTransition(.numericText())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(22)
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+        )
+    }
+
+    private var sessionMetrics: some View {
+        HStack(spacing: 0) {
+            metric(value: summary.reviewedCount, title: settings.t("Reviewed This Session"))
+            Divider().frame(height: 52)
+            metric(value: summary.markedForDeletionCount, title: settings.t("Marked for Deletion"))
+        }
+        .padding(.vertical, 20)
+        .background(
+            Color(uiColor: .secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+        )
+    }
+
+    private func metric(value: Int, title: String) -> some View {
+        VStack(spacing: 7) {
+            Text("\(value)")
+                .font(.title.bold().monospacedDigit())
+                .contentTransition(.numericText())
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(minHeight: 32)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var pendingDeletionButton: some View {
+        Button { showsTrash = true } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "trash")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 42, height: 42)
+                    .background(.primary.opacity(0.06), in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(settings.t("Review Pending Items"))
+                        .font(.subheadline.weight(.semibold))
+                    Text("\(manager.trashBin.count) \(settings.t("Items"))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .foregroundStyle(.primary)
+            .padding(16)
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var doneBar: some View {
+        Button(settings.t("Back to Library"), action: onHome)
+            .font(.headline)
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(.bar)
     }
 }

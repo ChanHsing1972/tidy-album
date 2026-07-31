@@ -8,6 +8,8 @@ struct AnalyticsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var manager: PhotoManager
 
+    @State private var showsResetConfirmation = false
+
     private var stats: CleanupStatistics { store.statistics }
 
     var body: some View {
@@ -26,6 +28,34 @@ struct AnalyticsView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(settings.t("Analytics"))
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button(
+                            settings.t("Reset Statistics"),
+                            systemImage: "arrow.counterclockwise",
+                            role: .destructive
+                        ) {
+                            showsResetConfirmation = true
+                        }
+                        .disabled(stats.reviewedCount == 0 && stats.cleanedCount == 0)
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(settings.t("More"))
+                }
+            }
+        }
+        .confirmationDialog(
+            settings.t("Reset Cleanup History?"),
+            isPresented: $showsResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(settings.t("Reset Statistics"), role: .destructive) { store.reset() }
+            Button(settings.t("Cancel"), role: .cancel) {}
+        } message: {
+            Text(settings.t("This removes cleanup statistics from this device."))
         }
     }
 

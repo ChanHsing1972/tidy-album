@@ -48,6 +48,12 @@ struct CleanupStatistics: Codable {
     }
 }
 
+struct CleaningSessionSummary: Equatable {
+    var reviewedCount = 0
+    var markedForDeletionCount = 0
+    var estimatedReclaimBytes: Int64 = 0
+}
+
 // MARK: - Statistics Store
 
 @MainActor
@@ -85,6 +91,11 @@ final class AnalyticsStore: ObservableObject {
             CleanupEvent(id: UUID(), date: .now, mediaKind: mediaKind, category: category, bytes: max(bytes, 0))
         )
         persist()
+    }
+
+    func reset() {
+        statistics = CleanupStatistics()
+        defaults.removeObject(forKey: storageKey)
     }
 
     private func persist() {

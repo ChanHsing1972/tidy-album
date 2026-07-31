@@ -27,7 +27,7 @@ struct TrashView: View {
                     ProgressView()
                         .controlSize(.large)
                         .padding(24)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
             }
         }

@@ -31,6 +31,7 @@ final class PhotoManager: NSObject, ObservableObject {
     @Published private(set) var sessionGroupCount = 0
     @Published private(set) var sessionGroupReviewedCount = 0
     @Published private(set) var sessionGroupTotalCount = 0
+    @Published private(set) var sessionSummary = CleaningSessionSummary()
     @Published var currentFilter: PhotoFilter = .all
     @Published private var favoriteStates: [String: Bool] = [:]
 
@@ -38,11 +39,13 @@ final class PhotoManager: NSObject, ObservableObject {
 
     private var history: [ReviewAction] = []
     private var reviewedIdentifiers: Set<String> = []
+    private var sessionDeletedIdentifiers: Set<String> = []
     private var groupReviewedIdentifiers: Set<String> = []
     private var currentGroupIdentifiers: Set<String> = []
     private var removedSessionIndices: [String: Int] = [:]
     private var sessionQueue: [PHAsset] = []
     private var sessionCursor = 0
+    private var isSessionActive = false
     private var fetchRevision = 0
     private var overviewRevision = 0
     private var hasRestoredPendingQueue = false
@@ -161,12 +164,15 @@ final class PhotoManager: NSObject, ObservableObject {
         let available = settings.sortOrder == .random ? assets.shuffled() : assets
         sessionQueue = available.filter { !trashIDs.contains($0.localIdentifier) }
         sessionCursor = 0
+        isSessionActive = true
         sessionGroupNumber = 0
         sessionGroupCount = max(
             1,
             Int(ceil(Double(sessionQueue.count) / Double(settings.cleaningGroupSize.rawValue)))
         )
         reviewedIdentifiers.removeAll()
+        sessionDeletedIdentifiers.removeAll()
+        sessionSummary = CleaningSessionSummary()
         loadNextGroup()
     }
 
@@ -201,6 +207,7 @@ final class PhotoManager: NSObject, ObservableObject {
         }
         if reviewedIdentifiers.insert(identifier).inserted {
             analytics.recordReview()
+            sessionSummary.reviewedCount += 1
         }
     }
 
@@ -215,11 +222,18 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func endSession() {
+        isSessionActive = false
         AssetImagePipeline.shared.stopCaching()
         sessionAssets.removeAll()
         sessionQueue.removeAll()
         history.removeAll()
         removedSessionIndices.removeAll()
+        currentGroupIdentifiers.removeAll()
+        groupReviewedIdentifiers.removeAll()
+        sessionGroupNumber = 0
+        sessionGroupCount = 0
+        sessionGroupReviewedCount = 0
+        sessionGroupTotalCount = 0
     }
 
     // MARK: Review Actions
@@ -231,6 +245,10 @@ final class PhotoManager: NSObject, ObservableObject {
             $0.localIdentifier == asset.localIdentifier
         } ?? min(index, sessionAssets.count)
         removedSessionIndices[asset.localIdentifier] = removalIndex
+        if sessionDeletedIdentifiers.insert(asset.localIdentifier).inserted {
+            sessionSummary.markedForDeletionCount += 1
+            sessionSummary.estimatedReclaimBytes += estimatedBytes(for: asset)
+        }
         trashBin.append(asset)
         persistTrash()
         sessionAssets.removeAll { $0.localIdentifier == asset.localIdentifier }
@@ -287,6 +305,7 @@ final class PhotoManager: NSObject, ObservableObject {
         case .deletion:
             trashBin.removeAll { $0.localIdentifier == action.asset.localIdentifier }
             persistTrash()
+            removeFromSessionDeletionSummary(action.asset)
             insertIntoSession(action.asset, at: action.index)
             removedSessionIndices[action.asset.localIdentifier] = nil
             adjustFilterCounts(for: action.asset, delta: 1)
@@ -310,6 +329,7 @@ final class PhotoManager: NSObject, ObservableObject {
     func restoreFromTrash(_ asset: PHAsset) {
         trashBin.removeAll { $0.localIdentifier == asset.localIdentifier }
         persistTrash()
+        removeFromSessionDeletionSummary(asset)
         history.removeAll { $0.asset.localIdentifier == asset.localIdentifier }
         if let index = removedSessionIndices[asset.localIdentifier] {
             insertIntoSession(asset, at: index)
@@ -354,6 +374,7 @@ final class PhotoManager: NSObject, ObservableObject {
                 persistTrash()
                 insertIntoSession(asset, at: index)
                 removedSessionIndices[asset.localIdentifier] = nil
+                removeFromSessionDeletionSummary(asset)
                 adjustFilterCounts(for: asset, delta: 1)
             }
         }
@@ -372,11 +393,21 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     private func insertIntoSession(_ asset: PHAsset, at index: Int) {
-        guard currentGroupIdentifiers.contains(asset.localIdentifier),
+        guard isSessionActive,
+              currentGroupIdentifiers.contains(asset.localIdentifier),
               !sessionAssets.contains(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
         sessionAssets.insert(asset, at: min(max(index, 0), sessionAssets.count))
         sessionGroupTotalCount = sessionAssets.count
         favoriteStates[asset.localIdentifier] = favoriteStates[asset.localIdentifier] ?? asset.isFavorite
+    }
+
+    private func removeFromSessionDeletionSummary(_ asset: PHAsset) {
+        guard sessionDeletedIdentifiers.remove(asset.localIdentifier) != nil else { return }
+        sessionSummary.markedForDeletionCount = max(0, sessionSummary.markedForDeletionCount - 1)
+        sessionSummary.estimatedReclaimBytes = max(
+            0,
+            sessionSummary.estimatedReclaimBytes - estimatedBytes(for: asset)
+        )
     }
 
     private func adjustFilterCounts(for asset: PHAsset, delta: Int) {

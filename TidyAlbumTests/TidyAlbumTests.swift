@@ -49,6 +49,21 @@ struct TidyAlbumTests {
     }
 
     @Test @MainActor
+    func analyticsResetClearsPersistedHistory() {
+        let suiteName = "TidyAlbumTests.analyticsReset.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let analytics = AnalyticsStore(defaults: defaults)
+        analytics.recordReview()
+        analytics.reset()
+
+        let restored = AnalyticsStore(defaults: defaults)
+        #expect(analytics.statistics.reviewedCount == 0)
+        #expect(restored.statistics.reviewedCount == 0)
+    }
+
+    @Test @MainActor
     func fullDateUsesTheSelectedLanguageForWeekdays() {
         let suiteName = "TidyAlbumTests.dates.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
