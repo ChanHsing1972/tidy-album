@@ -270,8 +270,8 @@ struct CleaningView: View {
             .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
         }
-        // Bottom bar — each button as a separate item
-        ToolbarItem(placement: .bottomBar) {
+        ToolbarItemGroup(placement: .bottomBar) {
+            // 1. 左侧：撤回按钮
             Button {
                 Task {
                     if let result = await manager.undoLastAction() {
@@ -283,47 +283,58 @@ struct CleaningView: View {
                 }
             } label: {
                 Image(systemName: "arrow.uturn.backward")
+                    .font(.body.weight(.semibold))
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(.primary) // 强制使用黑色/Primary
             .disabled(!manager.canUndo)
             .opacity(manager.canUndo ? 1 : 0.35)
             .accessibilityLabel(settings.t("Undo"))
-        }
-        ToolbarItem(placement: .bottomBar) {
+
+            Spacer() // 弹簧 1：把中间挤向正中央
+
+            // 2. 中间：信息按钮（展示日期 + 像素尺寸 / 文件大小）
             if let currentAsset {
                 Button {
                     detailsSelection = AssetSheetSelection(asset: currentAsset)
                 } label: {
                     HStack(spacing: 8) {
-                        VStack(spacing: 1) {
+                        VStack(spacing: 2) {
                             Text(currentAsset.creationDate?.formatted(date: .abbreviated, time: .omitted) ?? "—")
                                 .font(.caption.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            
                             Text("\(currentAsset.pixelWidth) × \(currentAsset.pixelHeight)")
                                 .font(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
+                        
                         if manager.isFavorite(currentAsset) {
                             Image(systemName: "heart.fill")
                                 .font(.caption)
                                 .foregroundStyle(.pink)
                         }
                     }
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .padding(.horizontal, 20) // 👈 1. 增加左右内边距，让背景/点击区域更宽
+                    .padding(.vertical, 4)
+                    .frame(minWidth: 200)     // 👈 2. 强行设定最小宽度，避免文字短时浮岛显得太窄
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(settings.t("Details"))
             }
-        }
-        ToolbarItem(placement: .bottomBar) {
+
+            Spacer() // 弹簧 2：把右侧挤向最右端
+
+            // 3. 右侧：分享按钮
             Button { prepareShare() } label: {
                 if isPreparingShare {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "square.and.arrow.up")
+                        .font(.body.weight(.semibold))
                 }
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(.primary) // 强制使用黑色/Primary
             .disabled(currentAsset == nil || isPreparingShare)
             .opacity(currentAsset == nil ? 0.35 : 1)
             .accessibilityLabel(settings.t("Share"))
@@ -338,7 +349,7 @@ struct CleaningView: View {
         case .barOnly:
             AnimatedProgressBar(value: value).frame(width: 108, height: 4)
         case .textOnly:
-            Text("\(reviewed) / \(total) · \(manager.sessionGroupNumber)/\(manager.sessionGroupCount)")
+            Text("\(reviewed) / \(total)")
                 .font(.caption2.monospacedDigit().weight(.semibold))
                 .foregroundStyle(.primary)
                 .contentTransition(.numericText())
@@ -411,7 +422,7 @@ private struct AnimatedProgressBar: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.primary.opacity(0.15))
                 Capsule()
-                    .fill(.blue)
+                    .fill(.primary)
                     .frame(width: max(value > 0 ? 3 : 0, proxy.size.width * min(max(value, 0), 1)))
             }
         }
