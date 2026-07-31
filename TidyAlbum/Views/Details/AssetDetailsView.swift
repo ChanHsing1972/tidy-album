@@ -156,10 +156,10 @@ struct AssetDetailsView: View {
     private var exifParameterBar: some View {
         HStack(spacing: 0) {
             exifCell(title: "ISO", value: metadata?.iso != nil ? "\(metadata!.iso!)" : "—")
-            exifCell(title: settings.t("焦距"), value: metadata?.focalLength != nil ? String(format: "%.0f mm", metadata!.focalLength!) : "—")
-            exifCell(title: settings.t("曝光"), value: metadata?.exposureTime != nil ? String(format: "%.1f ev", metadata!.exposureTime!) : "0 ev")
-            exifCell(title: settings.t("光圈"), value: metadata?.aperture != nil ? String(format: "ƒ%.2f", metadata!.aperture!) : "—")
-            exifCell(title: settings.t("快门"), value: shutterSpeedText)
+            exifCell(title: settings.t("Focal Length"), value: metadata?.focalLength != nil ? String(format: "%.0f mm", metadata!.focalLength!) : "—")
+            exifCell(title: settings.t("Exposure"), value: metadata?.exposureTime != nil ? String(format: "%.1f ev", metadata!.exposureTime!) : "0 ev")
+            exifCell(title: settings.t("Aperture"), value: metadata?.aperture != nil ? String(format: "ƒ%.2f", metadata!.aperture!) : "—")
+            exifCell(title: settings.t("Shutter"), value: shutterSpeedText)
         }
         .padding(.vertical, 10)
         .background(Color(uiColor: .tertiarySystemGroupedBackground).opacity(0.5))
@@ -237,14 +237,12 @@ struct AssetDetailsView: View {
     }
 
     private var defaultDeviceModel: String? {
-        asset.mediaType == .image ? settings.t("无设备信息") : nil
+        asset.mediaType == .image ? settings.t("No device information") : nil
     }
 
     private var fullFormattedDate: String {
-        guard let date = asset.creationDate else { return settings.t("未知日期") }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy年M月d日 EEEE HH:mm"
-        return formatter.string(from: date)
+        guard let date = asset.creationDate else { return settings.t("Unknown Date") }
+        return settings.fullDate(date)
     }
 
     private var fileName: String {
@@ -276,7 +274,7 @@ struct AssetDetailsView: View {
 
     private var lensDescription: String {
         guard let focal = metadata?.focalLength, let aperture = metadata?.aperture else {
-            return settings.t("无镜头信息")
+            return settings.t("No camera information")
         }
         return String(format: "%.0f mm ƒ/%.2f", focal, aperture)
     }
@@ -296,7 +294,7 @@ struct AssetDetailsView: View {
 
     private func reverseGeocode(_ location: CLLocation) async -> String? {
         let geocoder = CLGeocoder()
-        let placemarks = try? await geocoder.reverseGeocodeLocation(location, preferredLocale: Locale(identifier: "zh_CN"))
+        let placemarks = try? await geocoder.reverseGeocodeLocation(location, preferredLocale: settings.language.locale)
         guard let placemark = placemarks?.first else { return nil }
         var parts: [String] = []
         if let country = placemark.country { parts.append(country) }

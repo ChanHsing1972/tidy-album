@@ -47,4 +47,22 @@ struct TidyAlbumTests {
         #expect(restored.statistics.reviewedCount == 2)
         #expect(restored.statistics.cleanedCount == 0)
     }
+
+    @Test @MainActor
+    func fullDateUsesTheSelectedLanguageForWeekdays() {
+        let suiteName = "TidyAlbumTests.dates.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let friday = calendar.date(from: DateComponents(year: 2026, month: 7, day: 31, hour: 10))!
+        let settings = SettingsStore(defaults: defaults)
+
+        settings.language = .simplifiedChinese
+        #expect(settings.fullDate(friday).contains("星期五"))
+
+        settings.language = .english
+        #expect(settings.fullDate(friday).contains("Friday"))
+    }
 }

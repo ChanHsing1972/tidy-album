@@ -16,6 +16,13 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .english: "English"
         }
     }
+
+    var locale: Locale {
+        switch self {
+        case .simplifiedChinese: Locale(identifier: "zh_CN")
+        case .english: Locale(identifier: "en_US")
+        }
+    }
 }
 
 // MARK: - Cleaning Preferences

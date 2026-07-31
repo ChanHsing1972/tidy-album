@@ -40,6 +40,7 @@ struct ContentView: View {
                 }
         }
         .tint(.blue)
+        .environment(\.locale, settings.language.locale)
         .preferredColorScheme(settings.themeMode.colorScheme)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { manager.checkPermission() }

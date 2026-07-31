@@ -52,13 +52,30 @@ enum AppStrings {
         "Progress Display": "进度展示", "Numbers Only": "仅数字", "Progress Bar Only": "仅进度条",
         "Show Both": "均展示", "Group Complete": "本组清理完成", "Group": "组",
         "Clean Next Group": "清理下一组", "View Summary": "查看清理总结", "Continue Reviewing": "继续查看本组",
+        "Group Finished": "本组已完成", "All Done": "全部完成", "Continue with the next group?": "是否继续清理下一组？",
+        "Finish Session": "结束清理", "Next Group": "下一组", "Finish": "完成",
         "Theme": "主题", "Follow System": "跟随系统", "Light": "浅色", "Dark": "深色",
-        "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "No device information": "无设备信息", "No camera information": "无镜头信息"
+        "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "No device information": "无设备信息", "No camera information": "无镜头信息", "Shutter": "快门"
     ]
 }
 
 extension SettingsStore {
     func t(_ key: String) -> String {
         AppStrings.text(key, language: language)
+    }
+
+    func relativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = language.locale
+        formatter.dateTimeStyle = .numeric
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: .now)
+    }
+
+    func fullDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = language.locale
+        formatter.setLocalizedDateFormatFromTemplate("yMMMMdEEEEjm")
+        return formatter.string(from: date)
     }
 }

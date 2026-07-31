@@ -1,3 +1,4 @@
+import CoreLocation
 import Photos
 import SwiftUI
 import UIKit
@@ -16,8 +17,10 @@ struct CleaningView: View {
     @State private var isUndoing = false
     @State private var isExiting = false
     @State private var showsShareError = false
-    @State private var backdropImage: UIImage?
-    @State private var backdropImageRequestID: PHImageRequestID?
+    @State private var backdropImages: [String: UIImage] = [:]
+    @State private var backdropImageRequestIDs: [String: PHImageRequestID] = [:]
+    @State private var fallbackBackdropImage: UIImage?
+    @State private var backdropTransition = BackdropTransition.idle
 
     private let navigationSpring = Animation.spring(duration: 0.34, bounce: 0.12)
 
@@ -37,20 +40,21 @@ struct CleaningView: View {
                     .ignoresSafeArea()
 
                 Group {
-                    if manager.sessionAssets.isEmpty {
-                        if manager.sessionGroupNumber == 0 {
-                            emptyState
-                        } else {
-                            completionBridge
-                        }
+                    if manager.sessionGroupNumber == 0 && manager.sessionAssets.isEmpty {
+                        emptyState
                     } else {
                         CleaningCardStage(
                             assets: manager.sessionAssets,
                             selectedAssetID: $selectedAssetID,
+                            backdropTransition: $backdropTransition,
+                            settings: settings,
                             hapticsEnabled: settings.hapticsEnabled,
+                            hasNextGroup: manager.hasNextGroup,
                             isFavorite: manager.isFavorite,
                             onDelete: manager.markForDeletion,
-                            onToggleFavorite: manager.markFavorite
+                            onToggleFavorite: manager.markFavorite,
+                            onNextGroup: loadNextGroup,
+                            onEnd: finishSession
                         )
                     }
                 }
@@ -61,8 +65,7 @@ struct CleaningView: View {
         }
         .onAppear { selectInitialAsset() }
         .onDisappear {
-            AssetImagePipeline.shared.cancel(backdropImageRequestID)
-            backdropImageRequestID = nil
+            cancelBackdropRequests()
         }
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings).id(selection.id)
@@ -90,97 +93,119 @@ struct CleaningView: View {
         } message: {
             Text(manager.deletionError?.localizedDescription ?? settings.t("Try again from the pending deletion queue."))
         }
-        .onChange(of: selectedAssetID) { _, identifier in
+        .onChange(of: selectedAssetID) { previousIdentifier, identifier in
+            if let previousImage = backdropImages[previousIdentifier] {
+                fallbackBackdropImage = previousImage
+            }
             guard let index = manager.sessionAssets.firstIndex(where: { $0.localIdentifier == identifier }) else {
                 return
             }
             manager.recordViewed(manager.sessionAssets[index])
             manager.preheat(around: index)
+            loadBackdropImages(around: index)
         }
         .onChange(of: manager.sessionAssets.count) { _, _ in
+            guard selectedAssetID != CleaningPageID.groupCompletion else { return }
             guard !manager.sessionAssets.contains(where: { $0.localIdentifier == selectedAssetID }) else { return }
-            selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? ""
+            selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? CleaningPageID.groupCompletion
+        }
+        .onChange(of: manager.sessionGroupNumber) { _, _ in
+            cancelBackdropRequests()
+            backdropImages.removeAll(keepingCapacity: true)
+            fallbackBackdropImage = nil
+            backdropTransition = .idle
+            guard let index = currentIndex else { return }
+            loadBackdropImages(around: index)
         }
     }
 
     // MARK: - Backdrop View
 
     private var backdrop: some View {
-            GeometryReader { proxy in
-                ZStack {
-                    Color.black
+        GeometryReader { proxy in
+            ZStack {
+                Color.black
 
-                    if let backdropImage {
-                        Image(uiImage: backdropImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .scaleEffect(1.16)
-                            .blur(radius: 54, opaque: true)
-                            .transition(.opacity) // 仅保留透明度转场
-                    }
-
-                    Color.black.opacity(0.34)
+                if let image = backdropImages[selectedAssetID]
+                    ?? backdropTransition.sourceID.flatMap({ backdropImages[$0] })
+                    ?? fallbackBackdropImage {
+                    backdropLayer(image, size: proxy.size)
                 }
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .clipped()
-                .drawingGroup(opaque: true, colorMode: .nonLinear)
+
+                if selectedAssetID == CleaningPageID.groupCompletion {
+                    Color.black.opacity(0.48)
+                }
+
+                if let targetID = backdropTransition.targetID {
+                    if targetID == CleaningPageID.groupCompletion {
+                        Color.black.opacity(0.48 * backdropTransition.progress)
+                    } else if let targetImage = backdropImages[targetID] {
+                        backdropLayer(targetImage, size: proxy.size)
+                            .opacity(backdropTransition.progress)
+                    }
+                }
+
+                Color.black.opacity(0.34)
             }
-            .allowsHitTesting(false)
-            .task(id: selectedAssetID) { loadBackdropImage() }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
         }
-
-        // MARK: - Load Image Function
-
-        private func loadBackdropImage() {
-            AssetImagePipeline.shared.cancel(backdropImageRequestID)
-            backdropImageRequestID = nil
-            
-            guard let currentAsset else {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    backdropImage = nil
-                }
-                return
-            }
-
-            let targetSize = CGSize(width: 80, height: 80)
-            let isFirstLoad = (backdropImage == nil)
-
-            let applyImage: (UIImage) -> Void = { newImage in
-                if isFirstLoad {
-                    var transaction = Transaction(animation: nil)
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        backdropImage = newImage
-                    }
-                } else {
-                    withAnimation(.easeInOut(duration: 0.32)) {
-                        backdropImage = newImage
-                    }
-                }
-            }
-
-            // 1. 缓存命中
-            if let cached = AssetImagePipeline.shared.cachedImage(
-                for: currentAsset,
-                targetSize: targetSize,
-                contentMode: .aspectFill
-            ) {
-                applyImage(cached)
-                return
-            }
-
-            // 2. 异步请求
-            let requestedID = currentAsset.localIdentifier
-            backdropImageRequestID = AssetImagePipeline.shared.requestImage(
-                for: currentAsset,
-                targetSize: targetSize,
-                contentMode: .aspectFill
-            ) { loadedImage in
-                guard requestedID == selectedAssetID else { return }
-                applyImage(loadedImage)
-            }
+        .allowsHitTesting(false)
+        .task(id: selectedAssetID) {
+            guard let index = currentIndex else { return }
+            loadBackdropImages(around: index)
         }
+        .onChange(of: backdropTransition.targetID) { _, targetID in
+            guard let targetID,
+                  let index = manager.sessionAssets.firstIndex(where: { $0.localIdentifier == targetID }) else { return }
+            requestBackdrop(for: manager.sessionAssets[index])
+        }
+    }
+
+    private func backdropLayer(_ image: UIImage, size: CGSize) -> some View {
+        Image(uiImage: image)
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(width: size.width, height: size.height)
+            .scaleEffect(1.18)
+            .blur(radius: 54, opaque: true)
+    }
+
+    private func loadBackdropImages(around index: Int) {
+        let lower = max(index - 1, 0)
+        let upper = min(index + 1, manager.sessionAssets.count - 1)
+        guard lower <= upper else { return }
+        for asset in manager.sessionAssets[lower...upper] {
+            requestBackdrop(for: asset)
+        }
+    }
+
+    private func requestBackdrop(for asset: PHAsset) {
+        let identifier = asset.localIdentifier
+        guard backdropImages[identifier] == nil, backdropImageRequestIDs[identifier] == nil else { return }
+        let targetSize = CGSize(width: 160, height: 160)
+        if let cached = AssetImagePipeline.shared.cachedImage(
+            for: asset,
+            targetSize: targetSize,
+            contentMode: .aspectFill
+        ) {
+            backdropImages[identifier] = cached
+            return
+        }
+        backdropImageRequestIDs[identifier] = AssetImagePipeline.shared.requestImage(
+            for: asset,
+            targetSize: targetSize,
+            contentMode: .aspectFill
+        ) { image in
+            backdropImages[identifier] = image
+            backdropImageRequestIDs[identifier] = nil
+        }
+    }
+
+    private func cancelBackdropRequests() {
+        backdropImageRequestIDs.values.forEach(AssetImagePipeline.shared.cancel)
+        backdropImageRequestIDs.removeAll()
+    }
     
     // MARK: Toolbar
 
@@ -222,22 +247,13 @@ struct CleaningView: View {
             Spacer()
             if let currentAsset {
                 Button { detailsSelection = AssetSheetSelection(asset: currentAsset) } label: {
-                    HStack(spacing: 8) {
-                        VStack(spacing: 2) {
-                            Text(currentAsset.creationDate?.formatted(date: .abbreviated, time: .omitted) ?? "-")
-                                .font(.caption.weight(.semibold))
-                                .lineLimit(1)
-                            Text("\(currentAsset.pixelWidth) x \(currentAsset.pixelHeight)")
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        if manager.isFavorite(currentAsset) {
-                            Image(systemName: "heart.fill").font(.caption).foregroundStyle(.pink)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(minWidth: 200, maxWidth: 200, minHeight: 44)
+                    CleaningAssetInfoIsland(
+                        asset: currentAsset,
+                        settings: settings,
+                        isFavorite: manager.isFavorite(currentAsset)
+                    )
+                    .frame(width: 210)
+                    .frame(minHeight: 44)
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -261,7 +277,7 @@ struct CleaningView: View {
 
     @ViewBuilder private var sessionProgress: some View {
         let total = manager.sessionAssets.count
-        let current = (currentIndex ?? 0) + 1
+        let current = selectedAssetID == CleaningPageID.groupCompletion ? total : (currentIndex ?? 0) + 1
         let value = total == 0 ? 0 : Double(current) / Double(total)
         switch settings.progressDisplayMode {
         case .barOnly:
@@ -317,25 +333,22 @@ struct CleaningView: View {
         )
     }
 
-    private var completionBridge: some View {
-        GroupCompleteView(
-            settings: settings,
-            hasNextGroup: manager.hasNextGroup,
-            onNextGroup: {
-                manager.loadNextGroup()
-                selectedAssetID = ""
-                selectInitialAsset()
-            },
-            onEnd: {
-                dismiss()
-                onFinish?()
-            }
-        )
+    private func selectInitialAsset() {
+        guard selectedAssetID.isEmpty else { return }
+        selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? CleaningPageID.groupCompletion
     }
 
-    private func selectInitialAsset() {
-        guard selectedAssetID.isEmpty, let first = manager.sessionAssets.first else { return }
-        selectedAssetID = first.localIdentifier
+    private func loadNextGroup() {
+        guard manager.loadNextGroup() else {
+            finishSession()
+            return
+        }
+        selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? CleaningPageID.groupCompletion
+    }
+
+    private func finishSession() {
+        dismiss()
+        onFinish?()
     }
 }
 
@@ -344,10 +357,15 @@ struct CleaningView: View {
 private struct CleaningCardStage: View {
     let assets: [PHAsset]
     @Binding var selectedAssetID: String
+    @Binding var backdropTransition: BackdropTransition
+    let settings: SettingsStore
     let hapticsEnabled: Bool
+    let hasNextGroup: Bool
     let isFavorite: (PHAsset) -> Bool
     let onDelete: (PHAsset, Int) -> Void
     let onToggleFavorite: (PHAsset, Int) -> Void
+    let onNextGroup: () -> Void
+    let onEnd: () -> Void
 
     @State private var dragTranslation = CGSize.zero
     @State private var dragAxis = DragAxis.undetermined
@@ -364,6 +382,11 @@ private struct CleaningCardStage: View {
         assets.firstIndex { $0.localIdentifier == selectedAssetID }
     }
 
+    private var currentPageIndex: Int? {
+        if selectedAssetID == CleaningPageID.groupCompletion { return assets.count }
+        return currentIndex
+    }
+
     private var currentAsset: PHAsset? {
         guard let currentIndex, assets.indices.contains(currentIndex) else { return nil }
         return assets[currentIndex]
@@ -374,19 +397,31 @@ private struct CleaningCardStage: View {
             let pageWidth = proxy.size.width + 18
             let verticalProgress = min(abs(dragTranslation.height) / actionThreshold, 1)
             ZStack {
-                ForEach(visibleAssetsWithRelation, id: \.asset.localIdentifier) { item in
-                    let isCurrent = item.relation == 0
-                    CardView(asset: item.asset, isActive: isCurrent)
-                        .equatable()
-                        .overlay {
-                            if isCurrent { actionOverlay(for: item.asset) }
+                ForEach(visiblePageIndices, id: \.self) { pageIndex in
+                    let relation = pageIndex - (currentPageIndex ?? 0)
+                    let isCurrent = relation == 0
+                    Group {
+                        if assets.indices.contains(pageIndex) {
+                            CardView(asset: assets[pageIndex], isActive: isCurrent)
+                                .equatable()
+                                .overlay {
+                                    if isCurrent { actionOverlay(for: assets[pageIndex]) }
+                                }
+                        } else {
+                            GroupCompletionPage(
+                                settings: settings,
+                                hasNextGroup: hasNextGroup,
+                                onNextGroup: onNextGroup,
+                                onEnd: onEnd
+                            )
                         }
-                        .scaleEffect(cardScale(relation: item.relation, verticalProgress: verticalProgress))
+                    }
+                        .scaleEffect(cardScale(relation: relation, verticalProgress: verticalProgress))
                         .offset(
-                            x: CGFloat(item.relation) * pageWidth + horizontalDrag,
-                            y: cardVerticalOffset(relation: item.relation, progress: verticalProgress)
+                            x: CGFloat(relation) * pageWidth + horizontalDrag,
+                            y: cardVerticalOffset(relation: relation, progress: verticalProgress)
                         )
-                        .zIndex(isCurrent ? 10 : Double(4 - abs(item.relation)))
+                        .zIndex(isCurrent ? 10 : Double(4 - abs(relation)))
                         .accessibilityHidden(!isCurrent)
                 }
             }
@@ -408,11 +443,11 @@ private struct CleaningCardStage: View {
         }
     }
 
-    private var visibleAssetsWithRelation: [(asset: PHAsset, relation: Int)] {
-        guard let currentIndex, !assets.isEmpty else { return [] }
-        let lower = max(0, currentIndex - 1)
-        let upper = min(assets.count - 1, currentIndex + 1)
-        return (lower...upper).map { (assets[$0], $0 - currentIndex) }
+    private var visiblePageIndices: [Int] {
+        guard let currentPageIndex else { return [] }
+        let lower = max(0, currentPageIndex - 1)
+        let upper = min(assets.count, currentPageIndex + 1)
+        return Array(lower...upper)
     }
 
     private var horizontalDrag: CGFloat {
@@ -457,8 +492,13 @@ private struct CleaningCardStage: View {
                     switch dragAxis {
                     case .horizontal:
                         dragTranslation = CGSize(width: value.translation.width, height: 0)
+                        updateBackdropTransition(
+                            horizontalTranslation: value.translation.width,
+                            pageWidth: size.width + 18
+                        )
                     case .vertical:
                         dragTranslation = CGSize(width: 0, height: value.translation.height)
+                        backdropTransition = .idle
                     case .undetermined:
                         break
                     }
@@ -491,21 +531,29 @@ private struct CleaningCardStage: View {
             resetGesture(animated: true)
             return
         }
-        guard let currentIndex else {
+        guard let currentPageIndex else {
             resetGesture(animated: true)
             return
         }
-        let destination = currentIndex + direction
-        guard assets.indices.contains(destination) else {
+        let destination = currentPageIndex + direction
+        guard (0...assets.count).contains(destination) else {
             resetGesture(animated: true)
             boundaryHaptic()
             return
         }
 
         isTransitioning = true
-        let destinationID = assets[destination].localIdentifier
+        let destinationID = pageID(at: destination)
+        if backdropTransition.targetID != destinationID {
+            backdropTransition = BackdropTransition(
+                sourceID: selectedAssetID,
+                targetID: destinationID,
+                progress: 0
+            )
+        }
         withAnimation(navigationSpring) {
             dragTranslation = CGSize(width: -CGFloat(direction) * pageWidth, height: 0)
+            backdropTransition.progress = 1
         }
         scheduleTransition(after: .milliseconds(300)) {
             var transaction = Transaction()
@@ -545,7 +593,7 @@ private struct CleaningCardStage: View {
         } else if index > 0 {
             nextID = assets[index - 1].localIdentifier
         } else {
-            nextID = ""
+            nextID = CleaningPageID.groupCompletion
         }
 
         let startOffset = cardVerticalOffset(relation: 0, progress: 1)
@@ -555,9 +603,15 @@ private struct CleaningCardStage: View {
             isTransitioning = true
             isDeleting = true
             dragTranslation = CGSize(width: 0, height: startOffset)
+            backdropTransition = BackdropTransition(
+                sourceID: asset.localIdentifier,
+                targetID: nextID,
+                progress: 0
+            )
         }
         withAnimation(.easeOut(duration: 0.24)) {
             dragTranslation = CGSize(width: 0, height: -max(canvasSize.height * 1.18, 760))
+            backdropTransition.progress = 1
         }
         scheduleTransition(after: .milliseconds(240)) {
             var transaction = Transaction()
@@ -603,6 +657,29 @@ private struct CleaningCardStage: View {
         dragTranslation = .zero
         dragAxis = .undetermined
         thresholdHapticSent = false
+        backdropTransition = .idle
+    }
+
+    private func updateBackdropTransition(horizontalTranslation: CGFloat, pageWidth: CGFloat) {
+        guard let currentPageIndex, horizontalTranslation != 0 else {
+            backdropTransition = .idle
+            return
+        }
+        let direction = horizontalTranslation < 0 ? 1 : -1
+        let destination = currentPageIndex + direction
+        guard (0...assets.count).contains(destination) else {
+            backdropTransition = .idle
+            return
+        }
+        backdropTransition = BackdropTransition(
+            sourceID: selectedAssetID,
+            targetID: pageID(at: destination),
+            progress: min(abs(horizontalTranslation) / max(pageWidth, 1), 1)
+        )
+    }
+
+    private func pageID(at index: Int) -> String {
+        assets.indices.contains(index) ? assets[index].localIdentifier : CleaningPageID.groupCompletion
     }
 
     private func scheduleTransition(
@@ -654,6 +731,18 @@ private struct CleaningCardStage: View {
 
 private enum DragAxis { case undetermined, horizontal, vertical }
 
+private enum CleaningPageID {
+    static let groupCompletion = "tidyalbum.group-completion"
+}
+
+private struct BackdropTransition: Equatable {
+    var sourceID: String?
+    var targetID: String?
+    var progress: CGFloat
+
+    static let idle = BackdropTransition(sourceID: nil, targetID: nil, progress: 0)
+}
+
 private struct AssetSheetSelection: Identifiable {
     let asset: PHAsset
     var id: String { asset.localIdentifier }
@@ -676,45 +765,101 @@ private struct AnimatedProgressBar: View {
     }
 }
 
-private struct GroupCompleteView: View {
-    let settings: SettingsStore
+private struct GroupCompletionPage: View {
+    @ObservedObject var settings: SettingsStore
     let hasNextGroup: Bool
     let onNextGroup: () -> Void
     let onEnd: () -> Void
 
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            Image(systemName: hasNextGroup ? "checkmark.circle.fill" : "flag.checkered.circle.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.green)
-            Text(settings.t(hasNextGroup ? "本组已完成" : "全部完成"))
-                .font(.title2.weight(.semibold))
+        VStack(spacing: 18) {
+            Image(systemName: hasNextGroup ? "checkmark" : "flag.checkered")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 64, height: 64)
+                .background(.primary.opacity(0.1), in: Circle())
+            Text(settings.t(hasNextGroup ? "Group Finished" : "All Done"))
+                .font(.title2.weight(.bold))
             if hasNextGroup {
-                Text(settings.t("是否继续清理下一组？"))
-                    .font(.subheadline)
+                Text(settings.t("Continue with the next group?"))
+                    .font(.body)
                     .foregroundStyle(.secondary)
-                HStack(spacing: 20) {
-                    Button(settings.t("结束")) {
-                        onEnd()
-                    }
+                    .multilineTextAlignment(.center)
+                Button(settings.t("Next Group"), action: onNextGroup)
                     .buttonStyle(.borderedProminent)
-                    .tint(.secondary)
-                    Button(settings.t("继续")) {
-                        onNextGroup()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
-                }
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                Button(settings.t("Finish Session"), action: onEnd)
+                    .buttonStyle(.plain)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
             } else {
-                Button(settings.t("完成")) {
-                    onEnd()
-                }
+                Button(settings.t("Finish"), action: onEnd)
                 .buttonStyle(.borderedProminent)
-                .tint(.green)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
             }
-            Spacer()
         }
-        .padding()
+        .frame(maxWidth: 420, minHeight: 330)
+        .padding(28)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .stroke(.primary.opacity(0.08), lineWidth: 0.5)
+        }
+        .padding(.horizontal, 24)
+    }
+}
+
+private struct CleaningAssetInfoIsland: View {
+    let asset: PHAsset
+    @ObservedObject var settings: SettingsStore
+    let isFavorite: Bool
+
+    @State private var placeName: String?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(spacing: 2) {
+                if let creationDate = asset.creationDate {
+                    Text(settings.relativeDate(creationDate))
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                }
+                if let placeName {
+                    Text(placeName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            if isFavorite {
+                Image(systemName: "heart.fill")
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .task(id: "\(asset.localIdentifier)-\(settings.language.rawValue)") {
+            placeName = nil
+            guard let location = asset.location else { return }
+            placeName = await placeDescription(for: location)
+        }
+    }
+
+    private func placeDescription(for location: CLLocation) async -> String? {
+        let geocoder = CLGeocoder()
+        let placemarks = try? await geocoder.reverseGeocodeLocation(
+            location,
+            preferredLocale: settings.language.locale
+        )
+        guard let placemark = placemarks?.first else { return nil }
+        let candidates = [placemark.administrativeArea, placemark.locality, placemark.subLocality]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let uniqueParts = candidates.reduce(into: [String]()) { parts, candidate in
+            if !parts.contains(candidate) { parts.append(candidate) }
+        }
+        return uniqueParts.isEmpty ? nil : uniqueParts.joined(separator: " ")
     }
 }
