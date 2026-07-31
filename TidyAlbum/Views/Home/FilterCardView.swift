@@ -7,34 +7,34 @@ struct FilterCardView: View {
     let title: String
     let count: Int
     let isSelected: Bool
-    var isLoading = false
     let action: () -> Void
+
+    @State private var bounceTrigger = 0
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            // 💡 1. 显式设为 .center 对齐，确保大图标与两行文字垂直居中同步
+            HStack(alignment: .center, spacing: 12) {
+                // 💡 2. 调大图标字号（如 .title2 / .title3），并移除了固定 frame(width:34, height:34)
                 Image(systemName: filter.icon)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 34)
-                    .background(.primary.opacity(0.06), in: Circle())
-                VStack(alignment: .leading, spacing: 3) {
+                    .font(.title.weight(.medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .symbolEffect(.bounce, options: .nonRepeating, value: bounceTrigger)
+                
+                VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                    if isLoading {
-                        ProgressView()
-                            .controlSize(.mini)
-                    } else {
-                        Text("\(count)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .contentTransition(.numericText())
-                    }
+                    Text("\(count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
                 }
+                
                 Spacer(minLength: 0)
+                
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.bold))
@@ -56,6 +56,8 @@ struct FilterCardView: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(.spring(response: 0.32, dampingFraction: 0.75), value: isSelected)
-        .animation(.easeInOut(duration: 0.2), value: isLoading)
+        .onChange(of: isSelected) { _, selected in
+            if selected { bounceTrigger += 1 }
+        }
     }
 }

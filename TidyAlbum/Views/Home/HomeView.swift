@@ -144,14 +144,8 @@ struct CleanHomeView: View {
                 }
                 Spacer(minLength: 8)
                 Button(action: beginCleaning) {
-                    Group {
-                        if manager.isLoading {
-                            ProgressView()
-                        } else {
-                            Label(settings.t("Start Cleaning"), systemImage: "play.fill")
-                        }
-                    }
-                    .font(.subheadline.weight(.semibold))
+                    Label(settings.t("Start Cleaning"), systemImage: "play.fill")
+                        .font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
@@ -168,8 +162,7 @@ struct CleanHomeView: View {
                         filter: filter,
                         title: localizedTitle(for: filter),
                         count: count(for: filter),
-                        isSelected: manager.currentFilter == filter,
-                        isLoading: manager.isLoading && manager.currentFilter == filter
+                        isSelected: manager.currentFilter == filter
                     ) {
                         manager.setFilter(filter)
                     }
@@ -179,7 +172,6 @@ struct CleanHomeView: View {
     }
 
     private var collectionActionSubtitle: String {
-        if manager.isLoading { return settings.t("Loading Photos") }
         if manager.cleaningCandidateCount == 0,
            settings.sortOrder == .random,
            settings.excludesViewedInRandomMode {

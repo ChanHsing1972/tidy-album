@@ -26,18 +26,21 @@ struct AnalyticsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button(
-                            settings.t("Reset Statistics"),
-                            systemImage: "arrow.counterclockwise",
-                            role: .destructive
-                        ) {
+                        Button(role: .destructive) {
                             showsResetConfirmation = true
+                        } label: {
+                            Label(
+                                settings.t("Reset Statistics"),
+                                systemImage: "arrow.counterclockwise"
+                            )
                         }
                         .disabled(stats.reviewedCount == 0 && stats.cleanedCount == 0)
                     } label: {
                         Image(systemName: "ellipsis")
+                            .font(.body.weight(.semibold))
                             .contentShape(Rectangle())
                     }
+                    .tint(.primary) // 💡 关键：强制将外层 Menu 的 Accent 色重置为系统主色（黑/白）
                     .accessibilityLabel(settings.t("More"))
                 }
             }
