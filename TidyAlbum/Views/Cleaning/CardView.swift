@@ -5,25 +5,26 @@ import SwiftUI
 
 struct CardView: View {
     let asset: PHAsset
+    var isActive = false
+    var isFavorite = false
 
     var body: some View {
-        AssetMediaView(asset: asset, contentMode: .fit)
-            .background(Color(uiColor: .secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        AssetMediaView(
+            asset: asset,
+            contentMode: .fit,
+            allowsPlayback: true,
+            isActive: isActive
+        )
+            .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
             .overlay(alignment: .topTrailing) {
-                if asset.isFavorite {
+                if isFavorite {
                     Image(systemName: "heart.fill")
                         .font(.title3)
                         .foregroundStyle(.pink)
-                        .padding(14)
-                        .background(.ultraThinMaterial, in: Circle())
                         .padding(12)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .padding(14)
                 }
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(.white.opacity(0.12), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.18), radius: 22, y: 10)
     }
 }

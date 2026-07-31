@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Root Tab Architecture
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var settings: SettingsStore
     @StateObject private var analytics: AnalyticsStore
     @StateObject private var manager: PhotoManager
@@ -28,7 +29,7 @@ struct ContentView: View {
                     Label(settings.t("Clean"), systemImage: "sparkles")
                 }
 
-            AnalyticsView(store: analytics, settings: settings)
+            AnalyticsView(store: analytics, settings: settings, manager: manager)
                 .tabItem {
                     Label(settings.t("Analytics"), systemImage: "chart.bar.xaxis")
                 }
@@ -39,5 +40,9 @@ struct ContentView: View {
                 }
         }
         .tint(.blue)
+        .preferredColorScheme(settings.themeMode.colorScheme)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { manager.checkPermission() }
+        }
     }
 }

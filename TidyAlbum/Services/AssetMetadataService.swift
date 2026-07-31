@@ -6,41 +6,44 @@ import Photos
 
 @MainActor
 final class AssetMetadataService {
+    static let shared = AssetMetadataService()
+
+    private var cache: [String: AssetMetadata] = [:]
+
+    private init() {}
+
     func load(for asset: PHAsset) async -> AssetMetadata {
+        if let cached = cache[asset.localIdentifier] { return cached }
+        let metadata: AssetMetadata
         if asset.mediaType == .video {
-            return await loadVideoMetadata(for: asset)
+            metadata = await loadVideoMetadata(for: asset)
+        } else {
+            metadata = await loadImageMetadata(for: asset)
         }
-        return await loadImageMetadata(for: asset)
+        cache[asset.localIdentifier] = metadata
+        return metadata
     }
 
     private func loadImageMetadata(for asset: PHAsset) async -> AssetMetadata {
         let payload: (Data?, String?) = await withCheckedContinuation { continuation in
+            let gate = ContinuationGate(continuation)
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
             options.version = .current
             options.isNetworkAccessAllowed = true
             options.isSynchronous = false
 
-            var resumed = false
-            let requestID = PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, uti, _, info in
-                guard !resumed else { return }
+            PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, uti, _, info in
                 let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
                 if isDegraded && data != nil { return }
                 let isInCloud = (info?[PHImageResultIsInCloudKey] as? Bool) ?? false
-                // If in cloud and data is nil, wait for the download to complete
-                if isInCloud && data == nil { return }
-                resumed = true
-                continuation.resume(returning: (data, uti))
+                let error = info?[PHImageErrorKey] as? Error
+                if isInCloud && data == nil && error == nil { return }
+                gate.resume(returning: (data, uti))
             }
-
-            // Timeout: if the callback hasn't fired after 8 seconds, resume with nil
-            // This handles iCloud photos that can't be downloaded (e.g. no network)
             Task {
-                try? await Task.sleep(nanoseconds: 8_000_000_000)
-                guard !resumed else { return }
-                resumed = true
-                PHImageManager.default().cancelImageRequest(requestID)
-                continuation.resume(returning: (nil, nil))
+                try? await Task.sleep(for: .seconds(8))
+                gate.resume(returning: (nil, nil))
             }
         }
 
@@ -88,31 +91,23 @@ final class AssetMetadataService {
 
     private func loadVideoMetadata(for asset: PHAsset) async -> AssetMetadata {
         let (avAsset, fileSize): (AVAsset?, Int64) = await withCheckedContinuation { continuation in
+            let gate = ContinuationGate(continuation)
             let options = PHVideoRequestOptions()
             options.deliveryMode = .highQualityFormat
             options.isNetworkAccessAllowed = true
 
-            var resumed = false
-            let requestID = PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, info in
-                guard !resumed else { return }
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, info in
                 let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
                 if isDegraded { return }
-                resumed = true
-
                 var size: Int64 = 0
                 if let urlAsset = avAsset as? AVURLAsset {
                     size = Int64((try? urlAsset.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
                 }
-                continuation.resume(returning: (avAsset, size))
+                gate.resume(returning: (avAsset, size))
             }
-
-            // Timeout after 10 seconds for video
             Task {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                guard !resumed else { return }
-                resumed = true
-                PHImageManager.default().cancelImageRequest(requestID)
-                continuation.resume(returning: (nil, 0))
+                try? await Task.sleep(for: .seconds(10))
+                gate.resume(returning: (nil, 0))
             }
         }
 
@@ -144,5 +139,24 @@ final class AssetMetadataService {
         }
         let pixels = Int64(asset.pixelWidth) * Int64(asset.pixelHeight)
         return max(Int64(Double(pixels) * 0.32), 200_000)
+    }
+}
+
+// MARK: - Single Resume Continuation
+
+private final class ContinuationGate<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    init(_ continuation: CheckedContinuation<Value, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(returning value: Value) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: value)
     }
 }

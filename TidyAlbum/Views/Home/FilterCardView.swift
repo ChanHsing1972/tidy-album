@@ -1,46 +1,52 @@
 import SwiftUI
 
-// MARK: - 筛选卡片组件
-/// 展示单个筛选条件（全部、截屏、自拍、收藏）的可点击卡片。
-/// 选中状态有高亮样式反馈。
+// MARK: - Library Collection Cell
+
 struct FilterCardView: View {
-
-    // MARK: 属性
-
-    /// 筛选条件
     let filter: PhotoFilter
     let title: String
-    /// 是否为当前选中状态
+    let count: Int
     let isSelected: Bool
-    /// 点击回调
     let action: () -> Void
-
-    // MARK: - Body
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.standard) {
+            HStack(spacing: 12) {
                 Image(systemName: filter.icon)
-                    .font(DesignTokens.Typography.cardIcon)
-                    .foregroundColor(isSelected ? Color.accentColor : .primary)
-
-                Text(title)
-                    .font(DesignTokens.Typography.body)
-                    .foregroundColor(.primary)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(isSelected ? .blue : .primary)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Text("\(count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
+                }
+                Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.blue)
+                        .transition(.scale.combined(with: .opacity))
+                }
             }
-            .padding(DesignTokens.Spacing.large)
-            .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
             .background(
-                isSelected ? Color.accentColor.opacity(0.14) : Color(uiColor: .secondarySystemGroupedBackground)
+                isSelected ? Color.blue.opacity(0.14) : Color(uiColor: .secondarySystemGroupedBackground)
             )
-            .cornerRadius(DesignTokens.CornerRadius.large)
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.CornerRadius.large)
-                    .stroke(
-                        isSelected ? Color.accentColor : Color.clear,
-                        lineWidth: 1.5
-                    )
-            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? Color.blue : Color.white.opacity(0.05), lineWidth: 1)
+            }
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .animation(.spring(response: 0.32, dampingFraction: 0.75), value: isSelected)
     }
 }

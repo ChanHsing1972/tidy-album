@@ -10,81 +10,65 @@ struct CleaningView: View {
     @Environment(\.dismiss) private var dismiss
     var onFinish: (() -> Void)?
 
-    // MARK: Scroll & Drag State
-
-    @State private var currentVisibleID: String?
+    @State private var selectedAssetID = ""
     @State private var verticalOffset: CGFloat = 0
-    @State private var isDraggingVertical = false
+    @State private var dragAxis: DragAxis = .undetermined
     @State private var thresholdHapticSent = false
-    @State private var detailsAsset: PHAsset?
-    @State private var showsDetails = false
+    @State private var detailsSelection: AssetSheetSelection?
     @State private var showsTrash = false
-    @State private var gestureLockDirection: GestureDirection? = nil
+    @State private var activityItems: ActivityItems?
+    @State private var isPreparingShare = false
+    @State private var showsShareError = false
 
-    private enum GestureDirection {
-        case horizontal
-        case vertical
-    }
-
-    // MARK: Background Crossfade
-
-    @State private var bgPreviousID: String?
-    @State private var bgCurrentID: String?
-    @State private var bgPreviousOpacity: Double = 0
-    @State private var bgCurrentOpacity: Double = 0.65
-
-    /// Tracks whether the session had photos at any point, to distinguish
-    /// "empty from the start" vs "all photos reviewed/deleted".
-    @State private var sessionHadPhotos = false
-
-    private let swipeThreshold: CGFloat = 96
+    private let actionThreshold: CGFloat = 96
     private let flyDistance: CGFloat = 900
-    private let spring = Animation.spring(response: 0.35, dampingFraction: 0.7)
+    private let spring = Animation.spring(response: 0.38, dampingFraction: 0.72)
 
-    // MARK: Computed
-
-    private var currentIndex: Int {
-        guard let id = currentVisibleID else { return 0 }
-        return manager.sessionAssets.firstIndex(where: { $0.localIdentifier == id }) ?? 0
+    private var currentIndex: Int? {
+        manager.sessionAssets.firstIndex { $0.localIdentifier == selectedAssetID }
     }
 
     private var currentAsset: PHAsset? {
-        guard let id = currentVisibleID else { return manager.sessionAssets.first }
-        return manager.sessionAssets.first(where: { $0.localIdentifier == id })
+        guard let currentIndex else { return nil }
+        return manager.sessionAssets[currentIndex]
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                // Background
-                backgroundLayer
-                    .ignoresSafeArea()
-                    .animation(.easeInOut(duration: 0.5), value: bgCurrentID)
-
-                if manager.sessionAssets.isEmpty && !sessionHadPhotos {
+                backdrop
+                if manager.sessionGroupTotalCount == 0 {
                     emptyState
-                } else if manager.sessionAssets.isEmpty && sessionHadPhotos {
-                    finishedState
+                } else if manager.sessionAssets.isEmpty {
+                    Color.clear
+                        .onAppear {
+                            Task {
+                                try? await Task.sleep(for: .seconds(0.5))
+                                dismiss()
+                                onFinish?()
+                            }
+                        }
                 } else {
-                    VStack(spacing: 0) {
-                        cardScrollView
-                        bottomBar
-                            .padding(.bottom, 8)
-                    }
+                    nativePager
                 }
             }
-            .navigationTitle(settings.t("Clean"))
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { toolbar }
         }
-        .sheet(isPresented: $showsDetails) {
-            if let detailsAsset {
-                AssetDetailsView(asset: detailsAsset, settings: settings)
-                    .id(detailsAsset.localIdentifier)
-            }
+        .sheet(item: $detailsSelection) { selection in
+            AssetDetailsView(asset: selection.asset, settings: settings)
+                .id(selection.id)
         }
         .sheet(isPresented: $showsTrash) {
             TrashView(manager: manager, settings: settings)
+        }
+        .sheet(item: $activityItems) { items in
+            ActivityView(items: items.values)
+        }
+        .alert(settings.t("Unable to Share"), isPresented: $showsShareError) {
+            Button(settings.t("Done"), role: .cancel) {}
+        } message: {
+            Text(settings.t("The original item could not be prepared. Please check iCloud connectivity and try again."))
         }
         .alert(
             settings.t("Delete Failed"),
@@ -97,313 +81,299 @@ struct CleaningView: View {
         } message: {
             Text(manager.deletionError?.localizedDescription ?? settings.t("Try again from the pending deletion queue."))
         }
-        .onAppear {
-            sessionHadPhotos = !manager.sessionAssets.isEmpty
-            currentVisibleID = manager.sessionAssets.first?.localIdentifier
-            updateBackground(for: currentVisibleID)
-            if let asset = currentAsset { manager.recordViewed(asset) }
-        }
-        .onChange(of: currentVisibleID) { _, newID in
-            updateBackground(for: newID)
-            if let id = newID,
-               let idx = manager.sessionAssets.firstIndex(where: { $0.localIdentifier == id }) {
-                manager.recordViewed(manager.sessionAssets[idx])
-                manager.preheat(around: idx)
+        .onAppear { selectInitialAsset() }
+        .onChange(of: selectedAssetID) { _, identifier in
+            verticalOffset = 0
+            dragAxis = .undetermined
+            guard let index = manager.sessionAssets.firstIndex(where: { $0.localIdentifier == identifier }) else {
+                return
             }
+            manager.recordViewed(manager.sessionAssets[index])
+            manager.preheat(around: index)
         }
     }
 
-    // MARK: Background with Crossfade
+    // MARK: - Background (single layer, no animation)
 
     @ViewBuilder
-    private var backgroundLayer: some View {
-        ZStack {
-            Color.black
-            // Previous background (fading out)
-            if let prevID = bgPreviousID, prevID != bgCurrentID {
-                backgroundImage(for: prevID)
-                    .opacity(bgPreviousOpacity)
+    private var backdrop: some View {
+        if let asset = currentAsset {
+            AssetMediaView(asset: asset, contentMode: .fill, showsVideoBadge: false)
+                .blur(radius: 60)
+                .overlay(Color.black.opacity(0.35))
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        } else {
+            Color(uiColor: .systemBackground)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
+    }
+
+    // MARK: - Native Pager
+
+    private var nativePager: some View {
+        TabView(selection: $selectedAssetID) {
+            ForEach(manager.sessionAssets, id: \.localIdentifier) { asset in
+                reviewPage(for: asset)
+                    .tag(asset.localIdentifier)
             }
-            // Current background (fading in)
-            if let curID = bgCurrentID {
-                backgroundImage(for: curID)
-                    .opacity(bgCurrentOpacity)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .simultaneousGesture(verticalActionGesture)
+    }
+
+    private func reviewPage(for asset: PHAsset) -> some View {
+        GeometryReader { proxy in
+            CardView(
+                asset: asset,
+                isActive: asset.localIdentifier == selectedAssetID,
+                isFavorite: manager.isFavorite(asset)
+            )
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .offset(y: asset.localIdentifier == selectedAssetID ? verticalOffset : 0)
+            .scaleEffect(
+                asset.localIdentifier == selectedAssetID && dragAxis == .vertical ? 0.988 : 1
+            )
+            .overlay {
+                if asset.localIdentifier == selectedAssetID { actionOverlay }
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
-    private func backgroundImage(for identifier: String) -> some View {
-        Group {
-            if let asset = findAssetInSession(identifier) {
-                AssetMediaView(asset: asset, contentMode: .fill, showsVideoBadge: false)
-                    .blur(radius: 60)
-                    .overlay(Color.black.opacity(0.35))
-            }
-        }
-    }
+    // MARK: - Vertical Action Gesture
 
-    private func findAssetInSession(_ identifier: String) -> PHAsset? {
-        manager.sessionAssets.first(where: { $0.localIdentifier == identifier })
-    }
-
-    private func updateBackground(for newID: String?) {
-        guard let newID, newID != bgCurrentID else { return }
-
-        // Start crossfade
-        bgPreviousID = bgCurrentID
-        withAnimation(.easeInOut(duration: 0.45)) {
-            bgPreviousOpacity = 0
-            bgCurrentOpacity = 0.65
-        }
-
-        bgCurrentID = newID
-
-        // After animation, clean up previous
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            bgPreviousID = nil
-            bgPreviousOpacity = 0
-        }
-    }
-
-    // MARK: Card Scroll View
-
-    private var cardScrollView: some View {
-        GeometryReader { geometry in
-            let cardWidth = geometry.size.width - 36
-            let cardMaxHeight = geometry.size.height - 80
-
-            TabView(selection: $currentVisibleID) {
-                ForEach(Array(manager.sessionAssets.enumerated()), id: \.element.localIdentifier) { idx, asset in
-                    cardView(asset: asset, at: idx, cardWidth: cardWidth, cardMaxHeight: cardMaxHeight)
-                        .tag(asset.localIdentifier)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-        }
-    }
-
-    private func cardView(asset: PHAsset, at index: Int, cardWidth: CGFloat, cardMaxHeight: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            CardView(asset: asset)
-                .frame(maxWidth: cardWidth, maxHeight: cardMaxHeight)
-                .offset(y: verticalOffset)
-                .overlay(actionOverlay)
-                .simultaneousGesture(verticalDragGesture(for: asset, at: index))
-        }
-    }
-
-    // MARK: Action Overlay
-
-    private var actionOverlay: some View {
-        let isUp = isDraggingVertical && verticalOffset < 0 && abs(verticalOffset) > 4
-        let isDown = isDraggingVertical && verticalOffset > 0 && abs(verticalOffset) > 4
-        let progress = min(abs(verticalOffset) / 150, 1)
-        return ZStack {
-            IconOverlayView(icon: "trash.fill", color: .red, progress: isUp ? progress : 0)
-            IconOverlayView(icon: "heart.fill", color: .pink, progress: isDown ? progress : 0)
-        }
-        .animation(.easeOut(duration: 0.12), value: isUp)
-        .animation(.easeOut(duration: 0.12), value: isDown)
-    }
-
-    // MARK: Vertical Drag Gesture
-
-    private func verticalDragGesture(for asset: PHAsset, at index: Int) -> some Gesture {
-        DragGesture(minimumDistance: 20, coordinateSpace: .local)
+    private var verticalActionGesture: some Gesture {
+        DragGesture(minimumDistance: 10, coordinateSpace: .local)
             .onChanged { value in
-                // Lock direction on first significant movement
-                if gestureLockDirection == nil {
+                if dragAxis == .undetermined {
                     let h = abs(value.translation.width)
                     let v = abs(value.translation.height)
-                    if max(h, v) > 20 {
-                        gestureLockDirection = h > v ? .horizontal : .vertical
-                    }
-                    // If still undecided, don't react yet
-                    if gestureLockDirection == nil { return }
+                    guard max(h, v) > 12 else { return }
+                    dragAxis = v > h * 1.3 ? .vertical : .horizontal
                 }
-
-                // If locked to horizontal, let TabView handle it
-                guard gestureLockDirection == .vertical else { return }
-
-                isDraggingVertical = true
+                guard dragAxis == .vertical else { return }
                 verticalOffset = value.translation.height
-
-                let crossed = abs(value.translation.height) >= swipeThreshold
-                if crossed && !thresholdHapticSent {
-                    thresholdHapticSent = true
-                    guard settings.hapticsEnabled else { return }
-                    let generator = UIImpactFeedbackGenerator(style: value.translation.height < 0 ? .heavy : .light)
-                    generator.prepare()
-                    generator.impactOccurred()
-                } else if !crossed {
-                    thresholdHapticSent = false
-                }
+                updateHaptic(for: value.translation.height)
             }
             .onEnded { value in
                 defer {
-                    gestureLockDirection = nil
-                    isDraggingVertical = false
+                    dragAxis = .undetermined
                     thresholdHapticSent = false
                 }
-
-                // If locked to horizontal, nothing to do
-                guard gestureLockDirection == .vertical else { return }
-
-                if value.translation.height <= -swipeThreshold {
-                    commitDelete(asset: asset, at: index)
-                } else if value.translation.height >= swipeThreshold {
-                    commitFavorite(asset: asset, at: index)
+                guard dragAxis == .vertical else { return }
+                let projected = value.predictedEndTranslation.height
+                if verticalOffset <= -actionThreshold || projected <= -actionThreshold * 1.5 {
+                    commitDeletion()
+                } else if verticalOffset >= actionThreshold || projected >= actionThreshold * 1.5 {
+                    commitFavorite()
                 } else {
-                    withAnimation(spring) { verticalOffset = 0 }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { verticalOffset = 0 }
                 }
             }
     }
 
-    private func commitDelete(asset: PHAsset, at index: Int) {
-        withAnimation(spring) { verticalOffset = -flyDistance }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-            // Move to next item before removing current one from the session
-            let nextID = manager.sessionAssets[safe: index + 1]?.localIdentifier
-            if let nextID {
-                currentVisibleID = nextID
+    private func updateHaptic(for translation: CGFloat) {
+        let crossed = abs(translation) >= actionThreshold
+        if crossed, !thresholdHapticSent {
+            thresholdHapticSent = true
+            guard settings.hapticsEnabled else { return }
+            UIImpactFeedbackGenerator(style: translation < 0 ? .heavy : .light).impactOccurred()
+        } else if !crossed {
+            thresholdHapticSent = false
+        }
+    }
+
+    private func commitDeletion() {
+        guard let asset = currentAsset, let index = currentIndex else { return }
+        let nextID: String
+        if manager.sessionAssets.indices.contains(index + 1) {
+            nextID = manager.sessionAssets[index + 1].localIdentifier
+        } else if index > 0 {
+            nextID = manager.sessionAssets[index - 1].localIdentifier
+        } else {
+            nextID = ""
+        }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) { verticalOffset = -flyDistance }
+        Task {
+            try? await Task.sleep(for: .seconds(0.35))
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                manager.markForDeletion(asset, at: index)
+                selectedAssetID = nextID
+                verticalOffset = 0
             }
-            manager.markForDeletion(asset, at: index)
-            verticalOffset = 0
         }
     }
 
-    private func commitFavorite(asset: PHAsset, at index: Int) {
-        withAnimation(spring) { verticalOffset = flyDistance }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
-            manager.markFavorite(asset, at: index)
-            verticalOffset = 0
+    private func commitFavorite() {
+        guard let asset = currentAsset, let index = currentIndex else { return }
+        let hasNext = manager.sessionAssets.indices.contains(index + 1)
+        let nextID = hasNext ? manager.sessionAssets[index + 1].localIdentifier : asset.localIdentifier
+        manager.markFavorite(asset, at: index)
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) { verticalOffset = flyDistance }
+        Task {
+            try? await Task.sleep(for: .seconds(0.35))
+            if hasNext {
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) {
+                    selectedAssetID = nextID
+                    verticalOffset = 0
+                }
+            } else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { verticalOffset = 0 }
+            }
         }
     }
 
-    // MARK: Toolbar
+    private var actionOverlay: some View {
+        let progress = min(abs(verticalOffset) / 150, 1)
+        let isUp = verticalOffset < 0 && dragAxis == .vertical
+        let isDown = verticalOffset > 0 && dragAxis == .vertical
+        return ZStack {
+            IconOverlayView(icon: "trash.fill", color: .red, progress: isUp ? progress : 0)
+            IconOverlayView(
+                icon: (currentAsset.map { manager.isFavorite($0) } ?? false) ? "heart.slash.fill" : "heart.fill",
+                color: .pink,
+                progress: isDown ? progress : 0
+            )
+        }
+        .animation(.easeOut(duration: 0.1), value: progress)
+    }
+
+    // MARK: - Toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button { dismiss() } label: {
+            Button { exitSession() } label: {
                 Image(systemName: "xmark")
-                    .font(.body.weight(.semibold))
             }
+            .buttonStyle(.plain)
             .accessibilityLabel(settings.t("Close"))
         }
         ToolbarItem(placement: .principal) {
-            if !manager.sessionAssets.isEmpty {
-                progressIndicator
-            }
+            sessionProgress
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { showsTrash = true } label: {
                 Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
             }
+            .buttonStyle(.plain)
             .badge(manager.trashBin.count)
             .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
         }
-    }
-
-    private var progressIndicator: some View {
-        let mode = settings.progressDisplayMode
-        let current = min(currentIndex + 1, manager.sessionAssets.count)
-        let total = manager.sessionAssets.count
-
-        return Group {
-            if mode == .textOnly {
-                Text("\(current) / \(total)")
-                    .font(.caption.monospacedDigit().weight(.semibold))
-            } else if mode == .barOnly {
-                ProgressView(value: Double(currentIndex + 1), total: Double(total))
-                    .frame(width: 108)
-                    .tint(.blue)
-            } else {
-                VStack(spacing: 3) {
-                    Text("\(current) / \(total)")
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                    ProgressView(value: Double(currentIndex + 1), total: Double(total))
-                        .frame(width: 108)
-                        .tint(.blue)
+        // Bottom bar — native placement, system glass effect
+        ToolbarItem(placement: .bottomBar) {
+            HStack {
+                Button {
+                    Task {
+                        if let result = await manager.undoLastAction() {
+                            withAnimation(spring) {
+                                selectedAssetID = result.assetIdentifier
+                                verticalOffset = 0
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
                 }
-                .accessibilityElement(children: .combine)
-            }
-        }
-    }
+                .buttonStyle(.plain)
+                .disabled(!manager.canUndo)
+                .opacity(manager.canUndo ? 1 : 0.35)
+                .accessibilityLabel(settings.t("Undo"))
 
-    // MARK: Bottom Bar (Transparent Floating)
+                Spacer()
 
-    private var bottomBar: some View {
-        HStack(spacing: 0) {
-            // Undo
-            Button {
-                Task {
-                    if let restoredIndex = await manager.undoLastAction() {
-                        currentVisibleID = manager.sessionAssets[safe: restoredIndex]?.localIdentifier
-                        verticalOffset = 0
+                if let currentAsset {
+                    Button {
+                        detailsSelection = AssetSheetSelection(asset: currentAsset)
+                    } label: {
+                        HStack(spacing: 8) {
+                            VStack(spacing: 1) {
+                                Text(currentAsset.creationDate?.formatted(date: .abbreviated, time: .omitted) ?? "—")
+                                    .font(.caption.weight(.semibold))
+                                Text("\(currentAsset.pixelWidth) × \(currentAsset.pixelHeight)")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            if manager.isFavorite(currentAsset) {
+                                Image(systemName: "heart.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.pink)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(settings.t("Details"))
+                }
+
+                Spacer()
+
+                Button { prepareShare() } label: {
+                    if isPreparingShare {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
                     }
                 }
-            } label: {
-                Image(systemName: "arrow.uturn.backward")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 44, height: 44)
+                .buttonStyle(.plain)
+                .disabled(currentAsset == nil || isPreparingShare)
+                .opacity(currentAsset == nil ? 0.35 : 1)
+                .accessibilityLabel(settings.t("Share"))
             }
-            .disabled(!manager.canUndo)
-            .opacity(manager.canUndo ? 1 : 0.35)
-
-            Spacer()
-
-            // Liquid Glass Capsule Info Island
-            if let asset = currentAsset {
-                infoCapsule(asset: asset)
-            }
-
-            Spacer()
-
-            // Details
-            Button {
-                if let asset = currentAsset {
-                    detailsAsset = asset
-                    showsDetails = true
-                }
-            } label: {
-                Image(systemName: "info.circle")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 44, height: 44)
-            }
-            .disabled(currentAsset == nil)
-            .opacity(currentAsset == nil ? 0.35 : 1)
-        }
-        .padding(.horizontal, 20)
-    }
-
-    private func infoCapsule(asset: PHAsset) -> some View {
-        HStack(spacing: 8) {
-            if let date = asset.creationDate {
-                Text(date, style: .date)
-                    .font(.caption2.weight(.medium))
-                Text("·")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Text("\(asset.pixelWidth)×\(asset.pixelHeight)")
-                .font(.caption2.weight(.medium))
-            if asset.isFavorite {
-                Image(systemName: "heart.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.pink)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-        .overlay {
-            Capsule(style: .continuous)
-                .stroke(.white.opacity(0.15), lineWidth: 0.5)
         }
     }
 
-    // MARK: States
+    @ViewBuilder private var sessionProgress: some View {
+        let total = max(manager.sessionGroupTotalCount, 1)
+        let reviewed = min(manager.sessionGroupReviewedCount, total)
+        let value = Double(reviewed) / Double(total)
+        switch settings.progressDisplayMode {
+        case .barOnly:
+            AnimatedProgressBar(value: value).frame(width: 108, height: 4)
+        case .textOnly:
+            Text("\(reviewed) / \(total) · \(manager.sessionGroupNumber)/\(manager.sessionGroupCount)")
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.primary)
+                .contentTransition(.numericText())
+        case .both:
+            VStack(spacing: 5) {
+                Text("\(reviewed) / \(total) · \(manager.sessionGroupNumber)/\(manager.sessionGroupCount)")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .contentTransition(.numericText())
+                AnimatedProgressBar(value: value).frame(width: 108, height: 4)
+            }
+        }
+    }
+
+    private func prepareShare() {
+        guard let currentAsset else { return }
+        isPreparingShare = true
+        Task {
+            let values = await AssetSharingService.shared.activityItems(for: currentAsset)
+            isPreparingShare = false
+            if values.isEmpty {
+                showsShareError = true
+            } else {
+                activityItems = ActivityItems(values: values)
+            }
+        }
+    }
+
+    private func exitSession() {
+        manager.endSession()
+        dismiss()
+    }
+
+    // MARK: - States
 
     private var emptyState: some View {
         ContentUnavailableView(
@@ -413,25 +383,40 @@ struct CleaningView: View {
         )
     }
 
-    private var finishedState: some View {
-        ContentUnavailableView(
-            settings.t("Review complete"),
-            systemImage: "checkmark.circle.fill",
-            description: Text(settings.t("You reviewed every item in this session."))
-        )
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                dismiss()
-                onFinish?()
-            }
-        }
+    private func selectInitialAsset() {
+        guard selectedAssetID.isEmpty, let first = manager.sessionAssets.first else { return }
+        selectedAssetID = first.localIdentifier
+        manager.recordViewed(first)
+        manager.preheat(around: 0)
     }
 }
 
-// MARK: - Safe Array Access
+// MARK: - Supporting Types
 
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
+private enum DragAxis {
+    case undetermined
+    case horizontal
+    case vertical
+}
+
+private struct AssetSheetSelection: Identifiable {
+    let asset: PHAsset
+    var id: String { asset.localIdentifier }
+}
+
+private struct AnimatedProgressBar: View {
+    let value: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.primary.opacity(0.15))
+                Capsule()
+                    .fill(.blue)
+                    .frame(width: max(value > 0 ? 3 : 0, proxy.size.width * min(max(value, 0), 1)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.38), value: value)
+        .accessibilityValue(Text(value, format: .percent.precision(.fractionLength(0))))
     }
 }

@@ -15,12 +15,9 @@ struct CleanHomeView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if manager.isAuthorized {
-                    cleanContent
-                } else {
-                    PermissionView(settings: settings)
-                }
+                if manager.isAuthorized { cleanContent } else { PermissionView(settings: settings) }
             }
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(settings.t("TidyAlbum"))
             .toolbar {
                 if manager.isAuthorized {
@@ -29,6 +26,7 @@ struct CleanHomeView: View {
                             Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
                         }
                         .badge(manager.trashBin.count)
+                        .buttonStyle(.plain)
                         .id("home-trash-btn-\(manager.trashBin.count)")
                         .accessibilityLabel(settings.t("Trash"))
                     }
@@ -36,9 +34,7 @@ struct CleanHomeView: View {
             }
         }
         .fullScreenCover(isPresented: $showsCleaning) {
-            CleaningView(manager: manager, settings: settings, onFinish: {
-                showsSummary = true
-            })
+            CleaningView(manager: manager, settings: settings) { showsSummary = true }
         }
         .sheet(isPresented: $showsTrash) {
             TrashView(manager: manager, settings: settings)
@@ -50,54 +46,77 @@ struct CleanHomeView: View {
 
     private var cleanContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 24) {
+                if manager.isLimited { limitedAccessBanner }
                 librarySummary
                 filterSection
                 startButton
                 privacyFooter
             }
-            .padding(.horizontal)
-            .padding(.top, 16) 
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
             .padding(.bottom, 28)
         }
-        .refreshable { manager.fetchPhotos() }
+        .refreshable {
+            manager.fetchPhotos()
+            manager.refreshLibraryOverview()
+        }
     }
 
     // MARK: Library Summary
 
     private var librarySummary: some View {
         HStack(spacing: 0) {
-            summaryMetric(value: manager.assets.count, title: "Photos and videos", symbol: "photo.on.rectangle")
-            Divider().frame(height: 48)
-            summaryMetric(value: manager.trashBin.count, title: "Pending deletion", symbol: "trash")
+            summaryMetric(
+                value: "\(manager.filterCounts[.all] ?? manager.assets.count)",
+                title: settings.t("Photos and videos"),
+                symbol: "photo.on.rectangle"
+            )
+            Divider().frame(height: 52)
+            summaryMetric(
+                value: manager.trashBin.isEmpty
+                    ? "0"
+                    : ByteCountFormatter.string(fromByteCount: manager.pendingDeletionBytes, countStyle: .file),
+                title: settings.t("Pending deletion"),
+                symbol: "trash"
+            )
         }
         .padding(.vertical, 18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private func summaryMetric(value: Int, title: String, symbol: String) -> some View {
-        VStack(spacing: 5) {
-            Label("\(value)", systemImage: symbol)
-                .font(.title2.bold())
+    private func summaryMetric(value: String, title: String, symbol: String) -> some View {
+        VStack(spacing: 6) {
+            Label(value, systemImage: symbol)
+                .font(.title2.bold().monospacedDigit())
                 .foregroundStyle(.primary)
-            Text(settings.t(title))
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+                .contentTransition(.numericText())
+            Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: Filters
+    // MARK: Collections
 
     private var filterSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(settings.t("Choose a collection"))
-                .font(.headline)
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            HStack {
+                Text(settings.t("Choose a collection"))
+                    .font(.headline)
+                Spacer()
+                if manager.isLoading { ProgressView().controlSize(.small) }
+            }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 ForEach(PhotoFilter.allCases) { filter in
                     FilterCardView(
                         filter: filter,
                         title: localizedTitle(for: filter),
+                        count: manager.filterCounts[filter]
+                            ?? (filter == manager.currentFilter ? manager.assets.count : 0),
                         isSelected: manager.currentFilter == filter
                     ) {
                         manager.setFilter(filter)
@@ -111,26 +130,68 @@ struct CleanHomeView: View {
         switch filter {
         case .all: settings.t("All Photos")
         case .screenshots: settings.t("Screenshots")
+        case .videos: settings.t("Videos")
+        case .largeVideos: settings.t("Large Videos")
+        case .livePhotos: settings.t("Live Photos")
         case .selfies: settings.t("Selfies")
         case .favorites: settings.t("Favorites")
         }
     }
 
-    // MARK: Start
+    // MARK: Primary Action
 
     private var startButton: some View {
         Button {
+            guard manager.canBeginSession else { return }
             manager.beginSession()
             showsCleaning = true
         } label: {
-            Label(settings.t("Start Cleaning"), systemImage: "arrow.right.circle.fill")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                Text(settings.t("Start Cleaning"))
+                Spacer()
+                Text("\(min(manager.assets.count, settings.cleaningGroupSize.rawValue))")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.8))
+                Image(systemName: "arrow.right")
+            }
+            .font(.headline)
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity, minHeight: 54)
         }
         .buttonStyle(.borderedProminent)
         .buttonBorderShape(.capsule)
-        .disabled(manager.assets.isEmpty || manager.isLoading)
+        .disabled(!manager.canBeginSession)
+        .transaction { $0.animation = nil }
+    }
+
+    // MARK: Limited Access
+
+    private var limitedAccessBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "photo.badge.exclamationmark")
+                .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(settings.t("Limited Library"))
+                    .font(.subheadline.weight(.semibold))
+                Text(settings.t("Some photos are not available to TidyAlbum."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            Button(settings.t("Manage Access")) { presentLimitedLibraryPicker() }
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func presentLimitedLibraryPicker() {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let controller = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller)
     }
 
     private var privacyFooter: some View {

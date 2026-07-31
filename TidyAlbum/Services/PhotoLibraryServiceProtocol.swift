@@ -22,6 +22,9 @@ protocol PhotoLibraryServiceProtocol: AnyObject {
     /// - Returns: 匹配的照片资源数组
     func fetchAssets(filter: PhotoFilter) async -> [PHAsset]
 
+    /// Restores assets referenced by the app's persisted pending-deletion queue.
+    func fetchAssets(localIdentifiers: [String]) async -> [PHAsset]
+
     // MARK: 资源操作
 
     /// 删除指定照片资源（物理删除，不可恢复）

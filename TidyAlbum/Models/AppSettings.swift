@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 // MARK: - App Language
 
@@ -41,6 +42,31 @@ enum ProgressDisplayMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum ThemeMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+enum CleaningGroupSize: Int, CaseIterable, Identifiable {
+    case compact = 25
+    case standard = 50
+    case large = 100
+    case extraLarge = 200
+
+    var id: Int { rawValue }
+}
+
 // MARK: - Settings Store
 
 @MainActor
@@ -51,6 +77,8 @@ final class SettingsStore: ObservableObject {
         static let deletionMode = "settings.deletionMode"
         static let sortOrder = "settings.sortOrder"
         static let progressDisplay = "settings.progressDisplay"
+        static let cleaningGroupSize = "settings.cleaningGroupSize"
+        static let themeMode = "settings.themeMode"
     }
 
     @Published var language: AppLanguage {
@@ -73,6 +101,14 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(progressDisplayMode.rawValue, forKey: Key.progressDisplay) }
     }
 
+    @Published var cleaningGroupSize: CleaningGroupSize {
+        didSet { defaults.set(cleaningGroupSize.rawValue, forKey: Key.cleaningGroupSize) }
+    }
+
+    @Published var themeMode: ThemeMode {
+        didSet { defaults.set(themeMode.rawValue, forKey: Key.themeMode) }
+    }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -82,5 +118,7 @@ final class SettingsStore: ObservableObject {
         deletionMode = DeletionMode(rawValue: defaults.string(forKey: Key.deletionMode) ?? "") ?? .appTrash
         sortOrder = PhotoSortOrder(rawValue: defaults.string(forKey: Key.sortOrder) ?? "") ?? .newestFirst
         progressDisplayMode = ProgressDisplayMode(rawValue: defaults.string(forKey: Key.progressDisplay) ?? "") ?? .both
+        cleaningGroupSize = CleaningGroupSize(rawValue: defaults.integer(forKey: Key.cleaningGroupSize)) ?? .standard
+        themeMode = ThemeMode(rawValue: defaults.string(forKey: Key.themeMode) ?? "") ?? .system
     }
 }

@@ -8,6 +8,12 @@ enum PhotoFilter: String, CaseIterable, Identifiable, Equatable {
     case all = "全部照片"
     /// 截屏
     case screenshots = "截屏"
+    /// 视频
+    case videos = "视频"
+    /// 长时或 4K 视频
+    case largeVideos = "大型视频"
+    /// 实况照片
+    case livePhotos = "实况照片"
     /// 自拍
     case selfies = "自拍"
     /// 个人收藏
@@ -24,6 +30,9 @@ enum PhotoFilter: String, CaseIterable, Identifiable, Equatable {
         switch self {
         case .all:         "photo.on.rectangle.angled"
         case .screenshots: "camera.viewfinder"
+        case .videos:      "video.fill"
+        case .largeVideos: "externaldrive.badge.exclamationmark"
+        case .livePhotos:  "livephoto"
         case .selfies:     "person.crop.square"
         case .favorites:   "heart.fill"
         }

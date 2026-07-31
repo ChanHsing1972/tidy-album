@@ -19,6 +19,13 @@ struct SettingsView: View {
                     Toggle(isOn: $settings.hapticsEnabled) {
                         Label(settings.t("Haptic Feedback"), systemImage: "iphone.radiowaves.left.and.right")
                     }
+                    Picker(selection: $settings.themeMode) {
+                        Text(settings.t("Follow System")).tag(ThemeMode.system)
+                        Text(settings.t("Light")).tag(ThemeMode.light)
+                        Text(settings.t("Dark")).tag(ThemeMode.dark)
+                    } label: {
+                        Label(settings.t("Theme"), systemImage: "circle.lefthalf.filled")
+                    }
                 }
 
                 Section {
@@ -41,9 +48,17 @@ struct SettingsView: View {
                     } label: {
                         Label(settings.t("Progress Display"), systemImage: "info.circle")
                     }
+                    Picker(selection: $settings.cleaningGroupSize) {
+                        ForEach(CleaningGroupSize.allCases) { size in
+                            Text("\(size.rawValue) \(settings.t("Items"))").tag(size)
+                        }
+                    } label: {
+                        Label(settings.t("Group Size"), systemImage: "square.grid.3x3")
+                    }
                 } header: {
                     Text(settings.t("Cleaning Preferences"))
                 } footer: {
+                    Text(settings.t("Only one group is loaded at a time to keep browsing smooth."))
                     if settings.deletionMode == .systemTrash {
                         Text(settings.t("Direct deletion asks Photos for confirmation and cannot be undone inside TidyAlbum."))
                     }

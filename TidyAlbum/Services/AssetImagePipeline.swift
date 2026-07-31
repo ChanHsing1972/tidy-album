@@ -11,13 +11,19 @@ final class AssetImagePipeline {
 
     private let manager = PHCachingImageManager()
     private let cache = NSCache<NSString, UIImage>()
+    private var preheatedAssets: [String: PHAsset] = [:]
+    private var preheatTargetSize = CGSize.zero
 
     private init() {
         cache.countLimit = 80
     }
 
-    func cachedImage(for asset: PHAsset, targetSize: CGSize) -> UIImage? {
-        cache.object(forKey: cacheKey(asset: asset, targetSize: targetSize))
+    func cachedImage(
+        for asset: PHAsset,
+        targetSize: CGSize,
+        contentMode: PHImageContentMode = .aspectFit
+    ) -> UIImage? {
+        cache.object(forKey: cacheKey(asset: asset, targetSize: targetSize, contentMode: contentMode))
     }
 
     @discardableResult
@@ -27,7 +33,7 @@ final class AssetImagePipeline {
         contentMode: PHImageContentMode = .aspectFit,
         completion: @escaping (UIImage) -> Void
     ) -> PHImageRequestID? {
-        let key = cacheKey(asset: asset, targetSize: targetSize)
+        let key = cacheKey(asset: asset, targetSize: targetSize, contentMode: contentMode)
         if let image = cache.object(forKey: key) {
             completion(image)
             return nil
@@ -66,21 +72,47 @@ final class AssetImagePipeline {
         options.deliveryMode = .opportunistic
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
-        manager.startCachingImages(
-            for: assets,
-            targetSize: targetSize,
-            contentMode: .aspectFit,
-            options: options
-        )
+        if preheatTargetSize != targetSize {
+            manager.stopCachingImagesForAllAssets()
+            preheatedAssets.removeAll()
+            preheatTargetSize = targetSize
+        }
+        let requested = Dictionary(uniqueKeysWithValues: assets.map { ($0.localIdentifier, $0) })
+        let additions = requested.filter { preheatedAssets[$0.key] == nil }.map(\.value)
+        let removals = preheatedAssets.filter { requested[$0.key] == nil }.map(\.value)
+        if !removals.isEmpty {
+            manager.stopCachingImages(
+                for: removals,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            )
+        }
+        if !additions.isEmpty {
+            manager.startCachingImages(
+                for: additions,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            )
+        }
+        preheatedAssets = requested
     }
 
     func stopCaching() {
         manager.stopCachingImagesForAllAssets()
+        preheatedAssets.removeAll()
+        preheatTargetSize = .zero
     }
 
-    private func cacheKey(asset: PHAsset, targetSize: CGSize) -> NSString {
+    private func cacheKey(
+        asset: PHAsset,
+        targetSize: CGSize,
+        contentMode: PHImageContentMode
+    ) -> NSString {
         let widthBucket = Int(targetSize.width.rounded(.up) / 100) * 100
         let heightBucket = Int(targetSize.height.rounded(.up) / 100) * 100
-        return "\(asset.localIdentifier)-\(widthBucket)x\(heightBucket)" as NSString
+        let mode = contentMode == .aspectFill ? "fill" : "fit"
+        return "\(asset.localIdentifier)-\(widthBucket)x\(heightBucket)-\(mode)" as NSString
     }
 }
