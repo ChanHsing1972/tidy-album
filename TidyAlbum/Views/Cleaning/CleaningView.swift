@@ -355,7 +355,7 @@ struct CleaningView: View {
                 .contentTransition(.numericText())
         case .both:
             VStack(spacing: 5) {
-                Text("\(reviewed) / \(total) · \(manager.sessionGroupNumber)/\(manager.sessionGroupCount)")
+                Text("\(reviewed) / \(total)")
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.primary)
                     .contentTransition(.numericText())

@@ -25,7 +25,6 @@ struct AssetDetailsView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 28)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(settings.t("Media Details"))
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -143,24 +142,28 @@ struct AssetDetailsView: View {
                 Label(model, systemImage: "camera.fill")
                     .font(.subheadline.weight(.semibold))
             }
-            if let lens = metadata?.lensModel {
-                Text(lens)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+//            if let lens = metadata?.lensModel {
+//                Text(lens)
+//                    .font(.caption)
+//                    .foregroundStyle(.secondary)
+//            }
             Divider()
-            LazyVGrid(columns: technicalColumns, alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 0) {
                 if let aperture = metadata?.aperture {
                     technicalValue(settings.t("Aperture"), value: String(format: "ƒ/%.1f", aperture))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if let exposure = metadata?.exposureTime, exposure > 0 {
                     technicalValue(settings.t("Exposure"), value: String(format: "1/%.0f s", 1 / exposure))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if let iso = metadata?.iso {
                     technicalValue(settings.t("ISO"), value: "ISO \(iso)")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if let focalLength = metadata?.focalLength {
                     technicalValue(settings.t("Focal Length"), value: String(format: "%.0f mm", focalLength))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -171,8 +174,6 @@ struct AssetDetailsView: View {
 
     private func locationSection(_ location: CLLocation) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(settings.t("Location"), systemImage: "location.fill")
-                .font(.subheadline.weight(.semibold))
             Map(initialPosition: .region(MKCoordinateRegion(
                 center: location.coordinate,
                 latitudinalMeters: 900,
