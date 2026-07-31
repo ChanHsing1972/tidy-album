@@ -65,20 +65,18 @@ struct AssetDetailsView: View {
     // MARK: - 3. Main Info Card (Apple Style)
 
     private var mainInfoCard: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0)  {
             // Section 1: 日期、时间与文件名
             dateAndFileHeader
                 .padding(14)
             
             Divider()
-                .padding(.leading, 14)
-
+            
             // Section 2: 设备信息 & Badge
             if let deviceModel = metadata?.deviceModel ?? defaultDeviceModel {
                 deviceSection(model: deviceModel)
                     .padding(14)
                 Divider()
-                    .padding(.leading, 14)
             }
 
             // Section 3: 镜头细节与分辨率/文件大小
@@ -90,6 +88,7 @@ struct AssetDetailsView: View {
                 exifParameterBar
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
@@ -108,6 +107,7 @@ struct AssetDetailsView: View {
                 }
                 .foregroundStyle(.secondary)
             }
+            Spacer()
         }
     }
 

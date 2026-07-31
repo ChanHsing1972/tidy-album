@@ -157,7 +157,9 @@ final class PhotoManager: NSObject, ObservableObject {
     // MARK: Grouped Sessions
 
     func beginSession() {
-        sessionQueue = settings.sortOrder == .random ? assets.shuffled() : assets
+        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let available = settings.sortOrder == .random ? assets.shuffled() : assets
+        sessionQueue = available.filter { !trashIDs.contains($0.localIdentifier) }
         sessionCursor = 0
         sessionGroupNumber = 0
         sessionGroupCount = max(

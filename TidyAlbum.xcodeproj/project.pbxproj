@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		56F4E78E301B334E009F4D7B /* tidy-album.icon in Resources */ = {isa = PBXBuildFile; fileRef = 56F4E78D301B334E009F4D7B /* tidy-album.icon */; };
+		56F4E7E2301C9C04009F4D7B /* Inject in Frameworks */ = {isa = PBXBuildFile; productRef = 56F4E7E1301C9C04009F4D7B /* Inject */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				56F4E7E2301C9C04009F4D7B /* Inject in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			);
 			name = TidyAlbum;
 			packageProductDependencies = (
+				56F4E7E1301C9C04009F4D7B /* Inject */,
 			);
 			productName = TidyAlbum;
 			productReference = 56EA3DA92EFA95EE001C9A99 /* TidyAlbum.app */;
@@ -201,6 +204,9 @@
 			);
 			mainGroup = 56EA3DA02EFA95EE001C9A99;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				56F4E7E0301C9C04009F4D7B /* XCRemoteSwiftPackageReference "Inject" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 56EA3DAA2EFA95EE001C9A99 /* Products */;
 			projectDirPath = "";
@@ -595,6 +601,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		56F4E7E0301C9C04009F4D7B /* XCRemoteSwiftPackageReference "Inject" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzysztofzablocki/Inject";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		56F4E7E1301C9C04009F4D7B /* Inject */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 56F4E7E0301C9C04009F4D7B /* XCRemoteSwiftPackageReference "Inject" */;
+			productName = Inject;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 56EA3DA12EFA95EE001C9A99 /* Project object */;
 }

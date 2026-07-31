@@ -117,8 +117,8 @@ final class SettingsStore: ObservableObject {
         hapticsEnabled = defaults.object(forKey: Key.haptics) as? Bool ?? true
         deletionMode = DeletionMode(rawValue: defaults.string(forKey: Key.deletionMode) ?? "") ?? .appTrash
         sortOrder = PhotoSortOrder(rawValue: defaults.string(forKey: Key.sortOrder) ?? "") ?? .newestFirst
-        progressDisplayMode = ProgressDisplayMode(rawValue: defaults.string(forKey: Key.progressDisplay) ?? "") ?? .both
-        cleaningGroupSize = CleaningGroupSize(rawValue: defaults.integer(forKey: Key.cleaningGroupSize)) ?? .standard
-        themeMode = ThemeMode(rawValue: defaults.string(forKey: Key.themeMode) ?? "") ?? .system
+        progressDisplayMode = ProgressDisplayMode(rawValue: defaults.string(forKey: Key.progressDisplay) ?? "") ?? .barOnly
+        cleaningGroupSize = CleaningGroupSize(rawValue: defaults.integer(forKey: Key.cleaningGroupSize)) ?? .compact
+        themeMode = ThemeMode(rawValue: defaults.string(forKey: Key.themeMode) ?? "") ?? .dark
     }
 }

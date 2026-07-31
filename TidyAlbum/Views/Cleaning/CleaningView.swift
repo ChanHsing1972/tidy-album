@@ -103,54 +103,85 @@ struct CleaningView: View {
         }
     }
 
+    // MARK: - Backdrop View
+
     private var backdrop: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black
-                if let backdropImage {
-                    Image(uiImage: backdropImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: proxy.size.width, height: proxy.size.height)
-                        .scaleEffect(1.16)
-                        .blur(radius: 54, opaque: true)
-                        .transition(.opacity)
+            GeometryReader { proxy in
+                ZStack {
+                    Color.black
+
+                    if let backdropImage {
+                        Image(uiImage: backdropImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .scaleEffect(1.16)
+                            .blur(radius: 54, opaque: true)
+                            .transition(.opacity) // 仅保留透明度转场
+                    }
+
+                    Color.black.opacity(0.34)
                 }
-                Color.black.opacity(0.34)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .clipped()
+                .drawingGroup(opaque: true, colorMode: .nonLinear)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .clipped()
-            .drawingGroup(opaque: true, colorMode: .nonLinear)
+            .allowsHitTesting(false)
+            .task(id: selectedAssetID) { loadBackdropImage() }
         }
-        .allowsHitTesting(false)
-        .animation(.easeInOut(duration: 0.36), value: backdropImage)
-        .task(id: selectedAssetID) { loadBackdropImage() }
-    }
 
-    private func loadBackdropImage() {
-        AssetImagePipeline.shared.cancel(backdropImageRequestID)
-        backdropImageRequestID = nil
-        guard let currentAsset else { return }
-        let targetSize = CGSize(width: 80, height: 80)
-        if let cached = AssetImagePipeline.shared.cachedImage(
-            for: currentAsset,
-            targetSize: targetSize,
-            contentMode: .aspectFill
-        ) {
-            backdropImage = cached
-            return
-        }
-        let requestedID = currentAsset.localIdentifier
-        backdropImageRequestID = AssetImagePipeline.shared.requestImage(
-            for: currentAsset,
-            targetSize: targetSize,
-            contentMode: .aspectFill
-        ) { image in
-            guard requestedID == selectedAssetID else { return }
-            backdropImage = image
-        }
-    }
+        // MARK: - Load Image Function
 
+        private func loadBackdropImage() {
+            AssetImagePipeline.shared.cancel(backdropImageRequestID)
+            backdropImageRequestID = nil
+            
+            guard let currentAsset else {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    backdropImage = nil
+                }
+                return
+            }
+
+            let targetSize = CGSize(width: 80, height: 80)
+            let isFirstLoad = (backdropImage == nil)
+
+            let applyImage: (UIImage) -> Void = { newImage in
+                if isFirstLoad {
+                    var transaction = Transaction(animation: nil)
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        backdropImage = newImage
+                    }
+                } else {
+                    withAnimation(.easeInOut(duration: 0.32)) {
+                        backdropImage = newImage
+                    }
+                }
+            }
+
+            // 1. 缓存命中
+            if let cached = AssetImagePipeline.shared.cachedImage(
+                for: currentAsset,
+                targetSize: targetSize,
+                contentMode: .aspectFill
+            ) {
+                applyImage(cached)
+                return
+            }
+
+            // 2. 异步请求
+            let requestedID = currentAsset.localIdentifier
+            backdropImageRequestID = AssetImagePipeline.shared.requestImage(
+                for: currentAsset,
+                targetSize: targetSize,
+                contentMode: .aspectFill
+            ) { loadedImage in
+                guard requestedID == selectedAssetID else { return }
+                applyImage(loadedImage)
+            }
+        }
+    
     // MARK: Toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
@@ -172,6 +203,7 @@ struct CleaningView: View {
             }
             .buttonStyle(.plain)
             .badge(manager.trashBin.count)
+            .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
         }
         ToolbarItemGroup(placement: .bottomBar) {
@@ -286,12 +318,19 @@ struct CleaningView: View {
     }
 
     private var completionBridge: some View {
-        Color.clear.task {
-            try? await Task.sleep(for: .milliseconds(280))
-            guard !Task.isCancelled, manager.sessionAssets.isEmpty else { return }
-            dismiss()
-            onFinish?()
-        }
+        GroupCompleteView(
+            settings: settings,
+            hasNextGroup: manager.hasNextGroup,
+            onNextGroup: {
+                manager.loadNextGroup()
+                selectedAssetID = ""
+                selectInitialAsset()
+            },
+            onEnd: {
+                dismiss()
+                onFinish?()
+            }
+        )
     }
 
     private func selectInitialAsset() {
@@ -634,5 +673,48 @@ private struct AnimatedProgressBar: View {
         }
         .animation(.spring(duration: 0.36, bounce: 0.1), value: value)
         .accessibilityValue(Text(value, format: .percent.precision(.fractionLength(0))))
+    }
+}
+
+private struct GroupCompleteView: View {
+    let settings: SettingsStore
+    let hasNextGroup: Bool
+    let onNextGroup: () -> Void
+    let onEnd: () -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: hasNextGroup ? "checkmark.circle.fill" : "flag.checkered.circle.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(.green)
+            Text(settings.t(hasNextGroup ? "本组已完成" : "全部完成"))
+                .font(.title2.weight(.semibold))
+            if hasNextGroup {
+                Text(settings.t("是否继续清理下一组？"))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 20) {
+                    Button(settings.t("结束")) {
+                        onEnd()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.secondary)
+                    Button(settings.t("继续")) {
+                        onNextGroup()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
+                }
+            } else {
+                Button(settings.t("完成")) {
+                    onEnd()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+            }
+            Spacer()
+        }
+        .padding()
     }
 }
