@@ -61,6 +61,7 @@ struct AnalyticsView: View {
         .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        
     }
 
     // MARK: Seven-Day Trend

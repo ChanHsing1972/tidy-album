@@ -204,7 +204,7 @@ final class PhotoManager: NSObject, ObservableObject {
 
     func preheat(around index: Int) {
         let lower = max(0, index - 2)
-        let upper = min(sessionAssets.count, index + 7)
+        let upper = min(sessionAssets.count, index + 4)
         guard lower < upper else { return }
         AssetImagePipeline.shared.preheat(
             Array(sessionAssets[lower..<upper]),
@@ -232,6 +232,7 @@ final class PhotoManager: NSObject, ObservableObject {
         trashBin.append(asset)
         persistTrash()
         sessionAssets.removeAll { $0.localIdentifier == asset.localIdentifier }
+        sessionGroupTotalCount = sessionAssets.count
         adjustFilterCounts(for: asset, delta: -1)
         scheduleLibraryOverviewRefresh()
         if settings.deletionMode == .appTrash {
@@ -372,6 +373,7 @@ final class PhotoManager: NSObject, ObservableObject {
         guard currentGroupIdentifiers.contains(asset.localIdentifier),
               !sessionAssets.contains(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
         sessionAssets.insert(asset, at: min(max(index, 0), sessionAssets.count))
+        sessionGroupTotalCount = sessionAssets.count
         favoriteStates[asset.localIdentifier] = favoriteStates[asset.localIdentifier] ?? asset.isFavorite
     }
 

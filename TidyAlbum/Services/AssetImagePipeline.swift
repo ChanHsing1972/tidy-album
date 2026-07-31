@@ -84,7 +84,7 @@ final class AssetImagePipeline {
             manager.stopCachingImages(
                 for: removals,
                 targetSize: targetSize,
-                contentMode: .aspectFit,
+                contentMode: .aspectFill,
                 options: options
             )
         }
@@ -92,7 +92,7 @@ final class AssetImagePipeline {
             manager.startCachingImages(
                 for: additions,
                 targetSize: targetSize,
-                contentMode: .aspectFit,
+                contentMode: .aspectFill,
                 options: options
             )
         }
