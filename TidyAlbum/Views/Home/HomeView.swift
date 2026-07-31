@@ -61,7 +61,6 @@ struct CleanHomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if manager.isLimited { limitedAccessBanner }
-                libraryOverview
                 if !manager.trashBin.isEmpty { pendingDeletionRow }
                 collectionSection
                 privacyFooter
@@ -78,66 +77,6 @@ struct CleanHomeView: View {
         }
     }
 
-    // MARK: Library Overview
-
-    private var libraryOverview: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Label(settings.t("Library Overview"), systemImage: "photo.stack")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(libraryCount)")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                Text(settings.t("Photos and videos"))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            HStack(spacing: 0) {
-                overviewMetric(
-                    value: manager.isLoading ? "-" : "\(manager.assets.count)",
-                    title: settings.t("Selected Collection")
-                )
-                Divider().frame(height: 42)
-                overviewMetric(
-                    value: "\(min(manager.cleaningCandidateCount, settings.cleaningGroupSize.rawValue))",
-                    title: settings.t("Next Group")
-                )
-            }
-
-            if manager.canBeginSession {
-                Divider()
-                Button {
-                    if manager.currentFilter != .all { manager.setFilter(.all) }
-                    beginCleaning()
-                } label: {
-                    HStack {
-                        Image(systemName: "sparkles")
-                        Text(settings.t("Quick Clean All Photos"))
-                        Spacer()
-                        Image(systemName: "arrow.right")
-                            .font(.caption.weight(.bold))
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(height: 44)
-                    .background(.blue, in: Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(22)
-        .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-        )
-    }
 
     private func overviewMetric(value: String, title: String) -> some View {
         VStack(spacing: 5) {
@@ -202,10 +141,6 @@ struct CleanHomeView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(settings.t("Collections"))
                         .font(.title3.bold())
-                    Text(collectionActionSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 Button(action: beginCleaning) {
@@ -221,7 +156,6 @@ struct CleanHomeView: View {
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
                 .controlSize(.regular)
-                .disabled(!manager.canBeginSession)
                 .accessibilityValue("\(manager.cleaningCandidateCount) \(settings.t("Items"))")
             }
 

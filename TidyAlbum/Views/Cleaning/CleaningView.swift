@@ -60,8 +60,8 @@ struct CleaningView: View {
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .bottomBar)
             .toolbar { toolbar }
-            .safeAreaInset(edge: .bottom, spacing: 0) { bottomControls }
         }
         .onAppear { selectInitialAsset() }
         .onDisappear {
@@ -223,7 +223,7 @@ struct CleaningView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button { showsTrash = true } label: {
                 Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
-                    
+
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -231,44 +231,47 @@ struct CleaningView: View {
             .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
         }
-    }
-
-    private var bottomControls: some View {
-        HStack(spacing: 12) {
+        ToolbarItemGroup(placement: .bottomBar) {
             Button { undo() } label: {
-                GlassIconLabel(systemName: "arrow.uturn.backward", isBusy: isUndoing)
+                Group {
+                    if isUndoing { ProgressView().controlSize(.small) }
+                    else { Image(systemName: "arrow.uturn.backward").font(.body.weight(.semibold)) }
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!manager.canUndo || isUndoing)
             .opacity(manager.canUndo ? 1 : 0.35)
             .accessibilityLabel(settings.t("Undo"))
-            Spacer(minLength: 0)
+            Spacer()
             Button { detailsSelection = currentAsset.map { AssetSheetSelection(asset: $0) } } label: {
                 CleaningAssetInfoIsland(
                     asset: currentAsset,
                     settings: settings,
                     isFavorite: currentAsset.map { manager.isFavorite($0) } ?? false
                 )
-                .frame(minHeight: 46)
+                .frame(width: 210)
+                .frame(minHeight: 44)
                 .contentShape(Capsule())
-                .liquidGlassCapsule()
             }
             .buttonStyle(.plain)
             .disabled(currentAsset == nil)
             .opacity(currentAsset == nil ? 0 : 1)
             .accessibilityLabel(settings.t("Details"))
-            .frame(maxWidth: 210)
-            Spacer(minLength: 0)
+            .frame(width: 210)
+            Spacer()
             Button(action: prepareShare) {
-                GlassIconLabel(systemName: "square.and.arrow.up", isBusy: isPreparingShare)
+                Group {
+                    if isPreparingShare { ProgressView().controlSize(.small) }
+                    else { Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)) }
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(currentAsset == nil || isPreparingShare)
             .opacity(currentAsset == nil ? 0.35 : 1)
             .accessibilityLabel(settings.t("Share"))
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
     }
 
     @ViewBuilder private var sessionProgress: some View {
