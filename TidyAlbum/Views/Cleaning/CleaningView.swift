@@ -39,6 +39,7 @@ struct CleaningView: View {
     var body: some View {
         NavigationStack {
             ZStack {
+                // 1. 背景铺满全屏（只有它需要 ignoresSafeArea）
                 backdrop
                     .frame(
                         width: UIScreen.main.bounds.width,
@@ -48,17 +49,22 @@ struct CleaningView: View {
                         x: UIScreen.main.bounds.width / 2,
                         y: UIScreen.main.bounds.height / 2
                     )
-                if manager.sessionAssets.isEmpty {
-                    if manager.sessionGroupNumber == 0 {
-                        emptyState
+                    .ignoresSafeArea() // 💡 背景独立忽略安全区域
+
+                // 2. 卡片与空状态内容（留在 Safe Area 内）
+                Group {
+                    if manager.sessionAssets.isEmpty {
+                        if manager.sessionGroupNumber == 0 {
+                            emptyState
+                        } else {
+                            completionBridge
+                        }
                     } else {
-                        completionBridge
+                        cardStage
                     }
-                } else {
-                    cardStage
                 }
             }
-            .ignoresSafeArea()
+            // ❌ 删掉这里的 .ignoresSafeArea()，让 cardStage 和工具栏天然避开
             .background(
                 GeometryReader { proxy in
                     Color.clear
@@ -206,8 +212,7 @@ struct CleaningView: View {
             .contentShape(Rectangle())
             .gesture(reviewGesture(in: proxy.size))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.bottom, 38) // 从 6 改为 28，抬高底部间距
     }
 
     private var visibleAssets: [PHAsset] {
