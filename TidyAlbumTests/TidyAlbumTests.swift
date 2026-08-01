@@ -82,4 +82,34 @@ struct TidyAlbumTests {
         settings.language = .english
         #expect(settings.fullDate(friday).contains("Friday"))
     }
+
+    @Test @MainActor
+    func deletionTargetUsesTheFollowingPageFromTheRight() {
+        let target = CleaningMotionGeometry.deletionTarget(currentIndex: 1, assetCount: 4)
+
+        #expect(target == CleaningDeletionGeometry(pageIndex: 2, entryEdge: 1))
+    }
+
+    @Test @MainActor
+    func deletionTargetUsesThePreviousPageFromTheLeftAtTheEnd() {
+        let target = CleaningMotionGeometry.deletionTarget(currentIndex: 3, assetCount: 4)
+
+        #expect(target == CleaningDeletionGeometry(pageIndex: 2, entryEdge: -1))
+    }
+
+    @Test @MainActor
+    func deletingTheOnlyAssetPullsCompletionFromTheLeft() {
+        let target = CleaningMotionGeometry.deletionTarget(currentIndex: 0, assetCount: 1)
+
+        #expect(target == CleaningDeletionGeometry(pageIndex: 1, entryEdge: -1))
+    }
+
+    @Test @MainActor
+    func deletionPullProgressTracksOnlyUpwardMotionAndClamps() {
+        #expect(CleaningMotionGeometry.deletionProgress(verticalTranslation: 40, revealDistance: 200) == 0)
+        #expect(CleaningMotionGeometry.deletionProgress(verticalTranslation: -50, revealDistance: 200) == 0.25)
+        #expect(CleaningMotionGeometry.deletionProgress(verticalTranslation: -300, revealDistance: 200) == 1)
+        #expect(CleaningMotionGeometry.incomingOffset(entryEdge: 1, pageWidth: 400, progress: 0.25) == 300)
+        #expect(CleaningMotionGeometry.incomingOffset(entryEdge: -1, pageWidth: 400, progress: 1) == 0)
+    }
 }

@@ -90,8 +90,9 @@ struct AssetMediaView: View {
             for: asset,
             targetSize: targetSize,
             contentMode: photoKitMode
-        ) { loadedImage in
+        ) { loadedImage, isFinal in
             guard requestedAssetID == asset.localIdentifier, requestedImageKey == key else { return }
+            if isFinal { imageRequestID = nil }
             if shouldFadeIn, image == nil {
                 withAnimation(.easeOut(duration: 0.16)) { image = loadedImage }
             } else {

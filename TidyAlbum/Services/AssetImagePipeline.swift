@@ -31,16 +31,17 @@ final class AssetImagePipeline {
         for asset: PHAsset,
         targetSize: CGSize,
         contentMode: PHImageContentMode = .aspectFit,
-        completion: @escaping (UIImage) -> Void
+        deliveryMode: PHImageRequestOptionsDeliveryMode = .opportunistic,
+        completion: @escaping (_ image: UIImage, _ isFinal: Bool) -> Void
     ) -> PHImageRequestID? {
         let key = cacheKey(asset: asset, targetSize: targetSize, contentMode: contentMode)
         if let image = cache.object(forKey: key) {
-            completion(image)
+            completion(image, true)
             return nil
         }
 
         let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
+        options.deliveryMode = deliveryMode
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
 
@@ -53,10 +54,11 @@ final class AssetImagePipeline {
             guard let image else { return }
             Task { @MainActor in
                 let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                if !isDegraded {
+                let isFinal = !isDegraded
+                if isFinal {
                     self?.cache.setObject(image, forKey: key)
                 }
-                completion(image)
+                completion(image, isFinal)
             }
         }
     }

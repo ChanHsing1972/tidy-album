@@ -17,10 +17,7 @@ struct CleaningView: View {
     @State private var isUndoing = false
     @State private var isExiting = false
     @State private var showsShareError = false
-    @State private var backdropImages: [String: UIImage] = [:]
-    @State private var backdropImageRequestIDs: [String: PHImageRequestID] = [:]
-    @State private var fallbackBackdropImage: UIImage?
-    @State private var backdropTransition = BackdropTransition.idle
+    @State private var interaction = CleaningInteractionState()
 
     private let navigationSpring = Animation.spring(duration: 0.34, bounce: 0.12)
 
@@ -36,7 +33,12 @@ struct CleaningView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                backdrop
+                CleaningBackdropView(
+                    assets: manager.sessionAssets,
+                    selectedAssetID: selectedAssetID,
+                    sessionGroupNumber: manager.sessionGroupNumber,
+                    interaction: interaction
+                )
                     .ignoresSafeArea()
 
                 Group {
@@ -46,7 +48,7 @@ struct CleaningView: View {
                         CleaningCardStage(
                             assets: manager.sessionAssets,
                             selectedAssetID: $selectedAssetID,
-                            backdropTransition: $backdropTransition,
+                            interaction: interaction,
                             settings: settings,
                             hapticsEnabled: settings.hapticsEnabled,
                             hasNextGroup: manager.hasNextGroup,
@@ -64,9 +66,6 @@ struct CleaningView: View {
             .toolbar { toolbar }
         }
         .onAppear { selectInitialAsset() }
-        .onDisappear {
-            cancelBackdropRequests()
-        }
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings).id(selection.id)
         }
@@ -93,118 +92,18 @@ struct CleaningView: View {
         } message: {
             Text(manager.deletionError?.localizedDescription ?? settings.t("Try again from the pending deletion queue."))
         }
-        .onChange(of: selectedAssetID) { previousIdentifier, identifier in
-            if let previousImage = backdropImages[previousIdentifier] {
-                fallbackBackdropImage = previousImage
-            }
+        .onChange(of: selectedAssetID) { _, identifier in
             guard let index = manager.sessionAssets.firstIndex(where: { $0.localIdentifier == identifier }) else {
                 return
             }
             manager.recordViewed(manager.sessionAssets[index])
             manager.preheat(around: index)
-            loadBackdropImages(around: index)
         }
         .onChange(of: manager.sessionAssets.count) { _, _ in
             guard selectedAssetID != CleaningPageID.groupCompletion else { return }
             guard !manager.sessionAssets.contains(where: { $0.localIdentifier == selectedAssetID }) else { return }
             selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? CleaningPageID.groupCompletion
         }
-        .onChange(of: manager.sessionGroupNumber) { _, _ in
-            cancelBackdropRequests()
-            backdropImages.removeAll(keepingCapacity: true)
-            fallbackBackdropImage = nil
-            backdropTransition = .idle
-            guard let index = currentIndex else { return }
-            loadBackdropImages(around: index)
-        }
-    }
-
-    // MARK: - Backdrop View
-
-    private var backdrop: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black
-
-                if let image = backdropImages[selectedAssetID]
-                    ?? backdropTransition.sourceID.flatMap({ backdropImages[$0] })
-                    ?? fallbackBackdropImage {
-                    backdropLayer(image, size: proxy.size)
-                }
-
-                if selectedAssetID == CleaningPageID.groupCompletion {
-                    Color.black.opacity(0.48)
-                }
-
-                if let targetID = backdropTransition.targetID {
-                    if targetID == CleaningPageID.groupCompletion {
-                        Color.black.opacity(0.48 * backdropTransition.progress)
-                    } else if let targetImage = backdropImages[targetID] {
-                        backdropLayer(targetImage, size: proxy.size)
-                            .opacity(backdropTransition.progress)
-                    }
-                }
-
-                Color.black.opacity(0.34)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .clipped()
-        }
-        .allowsHitTesting(false)
-        .task(id: selectedAssetID) {
-            guard let index = currentIndex else { return }
-            loadBackdropImages(around: index)
-        }
-        .onChange(of: backdropTransition.targetID) { _, targetID in
-            guard let targetID,
-                  let index = manager.sessionAssets.firstIndex(where: { $0.localIdentifier == targetID }) else { return }
-            requestBackdrop(for: manager.sessionAssets[index])
-        }
-    }
-
-    private func backdropLayer(_ image: UIImage, size: CGSize) -> some View {
-        Image(uiImage: image)
-            .resizable()
-            .aspectRatio(contentMode: .fill)
-            .frame(width: size.width, height: size.height)
-            .scaleEffect(1.18)
-            .blur(radius: 54, opaque: true)
-    }
-
-    private func loadBackdropImages(around index: Int) {
-        let lower = max(index - 1, 0)
-        let upper = min(index + 1, manager.sessionAssets.count - 1)
-        guard lower <= upper else { return }
-        for asset in manager.sessionAssets[lower...upper] {
-            requestBackdrop(for: asset)
-        }
-    }
-
-    private func requestBackdrop(for asset: PHAsset) {
-        let identifier = asset.localIdentifier
-        guard backdropImages[identifier] == nil, backdropImageRequestIDs[identifier] == nil else { return }
-        let targetSize = CGSize(width: 160, height: 160)
-        if let cached = AssetImagePipeline.shared.cachedImage(
-            for: asset,
-            targetSize: targetSize,
-            contentMode: .aspectFill
-        ) {
-            backdropImages[identifier] = cached
-            return
-        }
-        backdropImageRequestIDs[identifier] = AssetImagePipeline.shared.requestImage(
-            for: asset,
-            targetSize: targetSize,
-            contentMode: .aspectFill
-        ) { image in
-            backdropImages[identifier] = image
-            backdropImageRequestIDs[identifier] = nil
-        }
-    }
-
-    private func cancelBackdropRequests() {
-        backdropImageRequestIDs.values.forEach(AssetImagePipeline.shared.cancel)
-        backdropImageRequestIDs.removeAll()
     }
     
     // MARK: Toolbar
@@ -356,7 +255,7 @@ struct CleaningView: View {
 private struct CleaningCardStage: View {
     let assets: [PHAsset]
     @Binding var selectedAssetID: String
-    @Binding var backdropTransition: BackdropTransition
+    let interaction: CleaningInteractionState
     let settings: SettingsStore
     let hapticsEnabled: Bool
     let hasNextGroup: Bool
@@ -366,16 +265,13 @@ private struct CleaningCardStage: View {
     let onNextGroup: () -> Void
     let onEnd: () -> Void
 
-    @State private var dragTranslation = CGSize.zero
-    @State private var dragAxis = DragAxis.undetermined
-    @State private var thresholdHapticSent = false
-    @State private var isTransitioning = false
-    @State private var isDeleting = false
-    @State private var transitionTask: Task<Void, Never>?
+    @State private var motion = CleaningMotionState.idle
+    @State private var gestureDriver = CleaningGestureDriver()
 
     private let actionThreshold: CGFloat = 92
     private let navigationSpring = Animation.spring(duration: 0.3, bounce: 0.1)
     private let returnSpring = Animation.spring(duration: 0.34, bounce: 0.18)
+    private let deletionCompletionAnimation = Animation.smooth(duration: 0.28)
 
     private var currentIndex: Int? {
         assets.firstIndex { $0.localIdentifier == selectedAssetID }
@@ -391,20 +287,33 @@ private struct CleaningCardStage: View {
         return assets[currentIndex]
     }
 
+    private var deletionTarget: CleaningDeletionTarget? {
+        guard let currentIndex,
+              let geometry = CleaningMotionGeometry.deletionTarget(
+                currentIndex: currentIndex,
+                assetCount: assets.count
+              ) else { return nil }
+        return CleaningDeletionTarget(
+            pageIndex: geometry.pageIndex,
+            pageID: pageID(at: geometry.pageIndex),
+            entryEdge: geometry.entryEdge
+        )
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let pageWidth = proxy.size.width + 18
-            let verticalProgress = min(abs(dragTranslation.height) / actionThreshold, 1)
+            let verticalProgress = min(abs(motion.translation.height) / actionThreshold, 1)
             ZStack {
-                ForEach(visiblePageIndices, id: \.self) { pageIndex in
-                    let relation = pageIndex - (currentPageIndex ?? 0)
+                ForEach(visiblePages) { page in
+                    let relation = page.index - (currentPageIndex ?? 0)
                     let isCurrent = relation == 0
                     Group {
-                        if assets.indices.contains(pageIndex) {
-                            CardView(asset: assets[pageIndex], isActive: isCurrent)
+                        if assets.indices.contains(page.index) {
+                            CardView(asset: assets[page.index], isActive: isCurrent)
                                 .equatable()
                                 .overlay {
-                                    if isCurrent { actionOverlay(for: assets[pageIndex]) }
+                                    if isCurrent { actionOverlay(for: assets[page.index]) }
                                 }
                         } else {
                             GroupCompletionPage(
@@ -415,12 +324,12 @@ private struct CleaningCardStage: View {
                             )
                         }
                     }
-                        .scaleEffect(cardScale(relation: relation, verticalProgress: verticalProgress))
+                        .scaleEffect(cardScale(isCurrent: isCurrent, verticalProgress: verticalProgress))
                         .offset(
-                            x: CGFloat(relation) * pageWidth + horizontalDrag,
-                            y: cardVerticalOffset(relation: relation, progress: verticalProgress)
+                            x: horizontalOffset(for: page.index, relation: relation, pageWidth: pageWidth),
+                            y: verticalOffset(isCurrent: isCurrent)
                         )
-                        .zIndex(isCurrent ? 10 : Double(4 - abs(relation)))
+                        .zIndex(zIndex(for: page.index, relation: relation, isCurrent: isCurrent))
                         .accessibilityHidden(!isCurrent)
                 }
             }
@@ -430,84 +339,113 @@ private struct CleaningCardStage: View {
         }
         .padding(.bottom, 4)
         .onDisappear {
-            transitionTask?.cancel()
-            transitionTask = nil
-            var transaction = Transaction()
-            transaction.animation = nil
+            gestureDriver.cancelTransition()
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
             withTransaction(transaction) {
                 clearGestureState()
-                isDeleting = false
-                isTransitioning = false
             }
         }
     }
 
-    private var visiblePageIndices: [Int] {
+    private var visiblePages: [CleaningPage] {
         guard let currentPageIndex else { return [] }
-        let lower = max(0, currentPageIndex - 1)
-        let upper = min(assets.count, currentPageIndex + 1)
-        return Array(lower...upper)
-    }
-
-    private var horizontalDrag: CGFloat {
-        dragAxis == .horizontal ? dragTranslation.width : 0
-    }
-
-    private func cardVerticalOffset(relation: Int, progress: CGFloat) -> CGFloat {
-        if relation == 0, dragAxis == .vertical {
-            if isDeleting { return dragTranslation.height }
-            let value = dragTranslation.height
-            let magnitude = abs(value)
-            let resisted = magnitude <= actionThreshold
-                ? magnitude
-                : actionThreshold + (magnitude - actionThreshold) * 0.58
-            return value < 0 ? -resisted : resisted
+        let lower = max(0, currentPageIndex - 2)
+        let upper = min(assets.count, currentPageIndex + 2)
+        return (lower...upper).map { index in
+            CleaningPage(index: index, id: pageID(at: index))
         }
-        if relation == 1, dragAxis == .vertical {
-            return 18 * (1 - progress)
-        }
-        return 0
     }
 
-    private func cardScale(relation: Int, verticalProgress: CGFloat) -> CGFloat {
-        if relation == 0, dragAxis == .vertical { return 1 - verticalProgress * 0.018 }
-        if relation == 1, dragAxis == .vertical { return 0.965 + verticalProgress * 0.035 }
+    private func horizontalOffset(for pageIndex: Int, relation: Int, pageWidth: CGFloat) -> CGFloat {
+        if motion.axis == .horizontal {
+            return CGFloat(relation) * pageWidth + motion.translation.width
+        }
+        if let deletionTarget,
+           pageIndex == deletionTarget.pageIndex,
+           motion.deletionProgress > 0 {
+            return CleaningMotionGeometry.incomingOffset(
+                entryEdge: deletionTarget.entryEdge,
+                pageWidth: pageWidth,
+                progress: motion.deletionProgress
+            )
+        }
+        return CGFloat(relation) * pageWidth
+    }
+
+    private func verticalOffset(isCurrent: Bool) -> CGFloat {
+        guard isCurrent, motion.axis == .vertical else { return 0 }
+        if motion.isDeleting { return motion.translation.height }
+        return resistedVerticalOffset(motion.translation.height)
+    }
+
+    private func resistedVerticalOffset(_ value: CGFloat) -> CGFloat {
+        let magnitude = abs(value)
+        let resisted = magnitude <= actionThreshold
+            ? magnitude
+            : actionThreshold + (magnitude - actionThreshold) * 0.58
+        return value < 0 ? -resisted : resisted
+    }
+
+    private func cardScale(isCurrent: Bool, verticalProgress: CGFloat) -> CGFloat {
+        if isCurrent, motion.axis == .vertical { return 1 - verticalProgress * 0.018 }
         return 1
+    }
+
+    private func zIndex(for pageIndex: Int, relation: Int, isCurrent: Bool) -> Double {
+        if isCurrent { return 10 }
+        if deletionTarget?.pageIndex == pageIndex, motion.deletionProgress > 0 { return 9 }
+        return Double(4 - abs(relation))
     }
 
     private func reviewGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .local)
             .onChanged { value in
-                guard !isTransitioning else { return }
-                if dragAxis == .undetermined {
+                guard !motion.isTransitioning else { return }
+                var resolvedAxis = motion.axis
+                if resolvedAxis == .undetermined {
                     let horizontal = abs(value.translation.width)
                     let vertical = abs(value.translation.height)
                     guard max(horizontal, vertical) > 10 else { return }
-                    dragAxis = vertical > horizontal * 1.15 ? .vertical : .horizontal
+                    resolvedAxis = vertical > horizontal * 1.15 ? .vertical : .horizontal
+                    gestureDriver.prepareHaptics(enabled: hapticsEnabled)
                 }
-                var transaction = Transaction()
-                transaction.animation = nil
+                var nextMotion = motion
+                nextMotion.axis = resolvedAxis
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                transaction.isContinuous = true
                 withTransaction(transaction) {
-                    switch dragAxis {
+                    switch resolvedAxis {
                     case .horizontal:
-                        dragTranslation = CGSize(width: value.translation.width, height: 0)
-                        updateBackdropTransition(
+                        nextMotion.translation = CGSize(width: value.translation.width, height: 0)
+                        nextMotion.deletionProgress = 0
+                        motion = nextMotion
+                        updateHorizontalBackdropTransition(
                             horizontalTranslation: value.translation.width,
                             pageWidth: size.width + 18
                         )
                     case .vertical:
-                        dragTranslation = CGSize(width: 0, height: value.translation.height)
-                        backdropTransition = .idle
+                        nextMotion.translation = CGSize(width: 0, height: value.translation.height)
+                        nextMotion.deletionProgress = deletionProgress(for: value.translation.height)
+                        motion = nextMotion
+                        updateDeletionBackdropTransition(progress: nextMotion.deletionProgress)
                     case .undetermined:
                         break
                     }
                 }
-                if dragAxis == .vertical { updateHaptic(for: value.translation.height) }
+                if resolvedAxis == .vertical {
+                    gestureDriver.updateThresholdHaptic(
+                        translation: value.translation.height,
+                        threshold: actionThreshold,
+                        enabled: hapticsEnabled
+                    )
+                }
             }
             .onEnded { value in
-                guard !isTransitioning else { return }
-                thresholdHapticSent = false
-                switch dragAxis {
+                guard !motion.isTransitioning else { return }
+                gestureDriver.resetThreshold()
+                switch motion.axis {
                 case .vertical:
                     finishVerticalGesture(value, canvasSize: size)
                 case .horizontal:
@@ -541,26 +479,31 @@ private struct CleaningCardStage: View {
             return
         }
 
-        isTransitioning = true
         let destinationID = pageID(at: destination)
-        if backdropTransition.targetID != destinationID {
-            backdropTransition = BackdropTransition(
+        var nextMotion = motion
+        nextMotion.isTransitioning = true
+        motion = nextMotion
+        if interaction.backdropTransition.targetID != destinationID {
+            interaction.setBackdropTransition(BackdropTransition(
                 sourceID: selectedAssetID,
                 targetID: destinationID,
                 progress: 0
-            )
+            ))
         }
         withAnimation(navigationSpring) {
-            dragTranslation = CGSize(width: -CGFloat(direction) * pageWidth, height: 0)
-            backdropTransition.progress = 1
+            motion.translation = CGSize(width: -CGFloat(direction) * pageWidth, height: 0)
+            interaction.setBackdropTransition(BackdropTransition(
+                sourceID: selectedAssetID,
+                targetID: destinationID,
+                progress: 1
+            ))
         }
-        scheduleTransition(after: .milliseconds(300)) {
-            var transaction = Transaction()
-            transaction.animation = nil
+        gestureDriver.scheduleTransition(after: .milliseconds(300)) {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
             withTransaction(transaction) {
                 selectedAssetID = destinationID
                 clearGestureState()
-                isTransitioning = false
             }
         }
     }
@@ -586,41 +529,39 @@ private struct CleaningCardStage: View {
             resetGesture(animated: true)
             return
         }
-        let nextID: String
-        if assets.indices.contains(index + 1) {
-            nextID = assets[index + 1].localIdentifier
-        } else if index > 0 {
-            nextID = assets[index - 1].localIdentifier
-        } else {
-            nextID = CleaningPageID.groupCompletion
+        guard let deletionTarget else {
+            resetGesture(animated: true)
+            return
         }
-
-        let startOffset = cardVerticalOffset(relation: 0, progress: 1)
-        var transaction = Transaction()
-        transaction.animation = nil
+        let startOffset = resistedVerticalOffset(motion.translation.height)
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
         withTransaction(transaction) {
-            isTransitioning = true
-            isDeleting = true
-            dragTranslation = CGSize(width: 0, height: startOffset)
-            backdropTransition = BackdropTransition(
+            motion.isTransitioning = true
+            motion.isDeleting = true
+            motion.translation = CGSize(width: 0, height: startOffset)
+            interaction.setBackdropTransition(BackdropTransition(
                 sourceID: asset.localIdentifier,
-                targetID: nextID,
-                progress: 0
-            )
+                targetID: deletionTarget.pageID,
+                progress: motion.deletionProgress
+            ))
         }
-        withAnimation(.easeOut(duration: 0.24)) {
-            dragTranslation = CGSize(width: 0, height: -max(canvasSize.height * 1.18, 760))
-            backdropTransition.progress = 1
+        withAnimation(deletionCompletionAnimation) {
+            motion.translation = CGSize(width: 0, height: -max(canvasSize.height * 1.18, 760))
+            motion.deletionProgress = 1
+            interaction.setBackdropTransition(BackdropTransition(
+                sourceID: asset.localIdentifier,
+                targetID: deletionTarget.pageID,
+                progress: 1
+            ))
         }
-        scheduleTransition(after: .milliseconds(240)) {
-            var transaction = Transaction()
-            transaction.animation = nil
+        gestureDriver.scheduleTransition(after: .milliseconds(280)) {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
             withTransaction(transaction) {
                 onDelete(asset, index)
-                selectedAssetID = nextID
+                selectedAssetID = deletionTarget.pageID
                 clearGestureState()
-                isDeleting = false
-                isTransitioning = false
             }
         }
     }
@@ -630,17 +571,17 @@ private struct CleaningCardStage: View {
             resetGesture(animated: true)
             return
         }
-        isTransitioning = true
-        var transaction = Transaction()
-        transaction.animation = nil
+        motion.isTransitioning = true
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
         withTransaction(transaction) {
             onToggleFavorite(asset, index)
         }
         withAnimation(returnSpring) {
-            clearGestureState()
+            clearGestureState(keepingTransitionLock: true)
         }
-        scheduleTransition(after: .milliseconds(340)) {
-            isTransitioning = false
+        gestureDriver.scheduleTransition(after: .milliseconds(340)) {
+            motion.isTransitioning = false
         }
     }
 
@@ -652,76 +593,71 @@ private struct CleaningCardStage: View {
         }
     }
 
-    private func clearGestureState() {
-        dragTranslation = .zero
-        dragAxis = .undetermined
-        thresholdHapticSent = false
-        backdropTransition = .idle
+    private func clearGestureState(keepingTransitionLock: Bool = false) {
+        let keepsTransitioning = keepingTransitionLock && motion.isTransitioning
+        motion = .idle
+        motion.isTransitioning = keepsTransitioning
+        gestureDriver.resetThreshold()
+        interaction.resetBackdropTransition()
     }
 
-    private func updateBackdropTransition(horizontalTranslation: CGFloat, pageWidth: CGFloat) {
+    private func updateHorizontalBackdropTransition(horizontalTranslation: CGFloat, pageWidth: CGFloat) {
         guard let currentPageIndex, horizontalTranslation != 0 else {
-            backdropTransition = .idle
+            interaction.resetBackdropTransition()
             return
         }
         let direction = horizontalTranslation < 0 ? 1 : -1
         let destination = currentPageIndex + direction
         guard (0...assets.count).contains(destination) else {
-            backdropTransition = .idle
+            interaction.resetBackdropTransition()
             return
         }
-        backdropTransition = BackdropTransition(
+        interaction.setBackdropTransition(BackdropTransition(
             sourceID: selectedAssetID,
             targetID: pageID(at: destination),
             progress: min(abs(horizontalTranslation) / max(pageWidth, 1), 1)
+        ))
+    }
+
+    private func deletionProgress(for verticalTranslation: CGFloat) -> CGFloat {
+        CleaningMotionGeometry.deletionProgress(
+            verticalTranslation: verticalTranslation,
+            revealDistance: actionThreshold * 2.4
         )
+    }
+
+    private func updateDeletionBackdropTransition(progress: CGFloat) {
+        guard progress > 0, let deletionTarget else {
+            interaction.resetBackdropTransition()
+            return
+        }
+        interaction.setBackdropTransition(BackdropTransition(
+            sourceID: selectedAssetID,
+            targetID: deletionTarget.pageID,
+            progress: progress
+        ))
     }
 
     private func pageID(at index: Int) -> String {
         assets.indices.contains(index) ? assets[index].localIdentifier : CleaningPageID.groupCompletion
     }
 
-    private func scheduleTransition(
-        after duration: Duration,
-        action: @escaping @MainActor () -> Void
-    ) {
-        transitionTask?.cancel()
-        transitionTask = Task { @MainActor in
-            try? await Task.sleep(for: duration)
-            guard !Task.isCancelled else { return }
-            action()
-            transitionTask = nil
-        }
-    }
-
-    private func updateHaptic(for translation: CGFloat) {
-        let crossed = abs(translation) >= actionThreshold
-        if crossed, !thresholdHapticSent {
-            thresholdHapticSent = true
-            guard hapticsEnabled else { return }
-            UIImpactFeedbackGenerator(style: translation < 0 ? .rigid : .soft).impactOccurred()
-        } else if !crossed {
-            thresholdHapticSent = false
-        }
-    }
-
     private func boundaryHaptic() {
-        guard hapticsEnabled else { return }
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.55)
+        gestureDriver.playBoundaryHaptic(enabled: hapticsEnabled)
     }
 
     private func actionOverlay(for asset: PHAsset) -> some View {
-        let progress = min(abs(dragTranslation.height) / 150, 1)
+        let progress = min(abs(motion.translation.height) / 150, 1)
         return ZStack {
             IconOverlayView(
                 icon: "trash.fill",
                 color: .red,
-                progress: dragAxis == .vertical && dragTranslation.height < 0 ? progress : 0
+                progress: motion.axis == .vertical && motion.translation.height < 0 ? progress : 0
             )
             IconOverlayView(
                 icon: isFavorite(asset) ? "heart.slash.fill" : "heart.fill",
                 color: .pink,
-                progress: dragAxis == .vertical && dragTranslation.height > 0 ? progress : 0
+                progress: motion.axis == .vertical && motion.translation.height > 0 ? progress : 0
             )
         }
         .allowsHitTesting(false)
@@ -730,16 +666,93 @@ private struct CleaningCardStage: View {
 
 private enum DragAxis { case undetermined, horizontal, vertical }
 
-private enum CleaningPageID {
+enum CleaningPageID {
     static let groupCompletion = "tidyalbum.group-completion"
 }
 
-private struct BackdropTransition: Equatable {
-    var sourceID: String?
-    var targetID: String?
-    var progress: CGFloat
+private struct CleaningMotionState {
+    var translation: CGSize
+    var axis: DragAxis
+    var deletionProgress: CGFloat
+    var isTransitioning: Bool
+    var isDeleting: Bool
 
-    static let idle = BackdropTransition(sourceID: nil, targetID: nil, progress: 0)
+    static let idle = CleaningMotionState(
+        translation: .zero,
+        axis: .undetermined,
+        deletionProgress: 0,
+        isTransitioning: false,
+        isDeleting: false
+    )
+}
+
+private struct CleaningPage: Identifiable {
+    let index: Int
+    let id: String
+}
+
+private struct CleaningDeletionTarget {
+    let pageIndex: Int
+    let pageID: String
+    let entryEdge: CGFloat
+}
+
+@MainActor
+private final class CleaningGestureDriver {
+    private let deletionHaptic = UIImpactFeedbackGenerator(style: .rigid)
+    private let favoriteHaptic = UIImpactFeedbackGenerator(style: .soft)
+    private let boundaryHaptic = UIImpactFeedbackGenerator(style: .soft)
+    private var thresholdCrossed = false
+    private var transitionTask: Task<Void, Never>?
+
+    func prepareHaptics(enabled: Bool) {
+        guard enabled else { return }
+        deletionHaptic.prepare()
+        favoriteHaptic.prepare()
+        boundaryHaptic.prepare()
+    }
+
+    func updateThresholdHaptic(translation: CGFloat, threshold: CGFloat, enabled: Bool) {
+        let crossed = abs(translation) >= threshold
+        if crossed, !thresholdCrossed {
+            thresholdCrossed = true
+            guard enabled else { return }
+            if translation < 0 {
+                deletionHaptic.impactOccurred()
+            } else {
+                favoriteHaptic.impactOccurred()
+            }
+        } else if !crossed {
+            thresholdCrossed = false
+        }
+    }
+
+    func playBoundaryHaptic(enabled: Bool) {
+        guard enabled else { return }
+        boundaryHaptic.impactOccurred(intensity: 0.55)
+    }
+
+    func resetThreshold() {
+        thresholdCrossed = false
+    }
+
+    func scheduleTransition(
+        after duration: Duration,
+        action: @escaping @MainActor () -> Void
+    ) {
+        transitionTask?.cancel()
+        transitionTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            action()
+            self?.transitionTask = nil
+        }
+    }
+
+    func cancelTransition() {
+        transitionTask?.cancel()
+        transitionTask = nil
+    }
 }
 
 private struct AssetSheetSelection: Identifiable {
