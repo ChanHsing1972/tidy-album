@@ -70,11 +70,9 @@ struct TrashView: View {
                         onDetails: { detailsSelection = TrashAssetSelection(asset: asset) },
                         onRestore: { restore(asset) }
                     )
-                    // 💡 1. 给每个 Cell 指定唯一 ID，防止 Layout 复用错位
-                    .id(asset.localIdentifier)
-                    // 💡 2. 使用 transition 确保照片被移除时缩小淡出，后面的照片自然滑过来
-                    .transition(.scale(scale: 0.8).combined(with: .opacity))
                     .equatable()
+                    .id(asset.localIdentifier)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
             }
             .padding(.horizontal, 4)
@@ -169,6 +167,7 @@ struct TrashView: View {
                     .contentShape(Rectangle())
             }
             .foregroundStyle(.primary)
+            .opacity(manager.trashBin.isEmpty ? 0.35 : 1)
             .disabled(manager.trashBin.isEmpty)
         }
     }

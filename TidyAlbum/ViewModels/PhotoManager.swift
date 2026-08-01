@@ -439,6 +439,7 @@ final class PhotoManager: NSObject, ObservableObject {
         let matchingFilters = PhotoFilter.allCases.filter { filter in
             switch filter {
             case .all: true
+            case .photos: asset.mediaType == .image
             case .screenshots: asset.mediaSubtypes.contains(.photoScreenshot)
             case .videos: asset.mediaType == .video
             case .largeVideos:

@@ -816,35 +816,104 @@ private struct CleaningAssetInfoIsland: View {
     let isFavorite: Bool
 
     @State private var placeName: String?
+    @State private var assetFileSize: Int64?
+
+    // 同步判断是否有二级信息（决定 VStack 是单行还是双行）
+    private var hasSecondaryInfo: Bool {
+        guard let asset else { return false }
+        switch settings.assetInfoDisplayMode {
+        case .location:
+            return asset.location != nil
+        case .fileSize:
+            return true
+        case .fullDate:
+            return asset.creationDate != nil
+        case .resolution:
+            return true
+        }
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             if let asset {
                 VStack(spacing: 2) {
+                    // 1. 时间信息（不使用 .id，依靠 contentTransition 配合 withAnimation 进行无缝淡入淡出）
                     if let creationDate = asset.creationDate {
                         Text(settings.relativeDate(creationDate))
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
+                            .contentTransition(.opacity)
                     }
-                    if let placeName {
-                        Text(placeName)
+                    
+                    // 2. 位置/二级信息（只有真实存在时才插入 VStack，以便单行时时间能居中）
+                    if hasSecondaryInfo, let text = secondaryInfoText(for: asset) {
+                        Text(text)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .contentTransition(.opacity)
+                            // 消失/出现时仅做透明度淡入淡出，高度交由 VStack 弹性平滑挤压
+                            .transition(.opacity)
                     }
                 }
+                
+                // 3. 爱心图标
                 if isFavorite {
                     Image(systemName: "heart.fill")
                         .font(.caption)
                         .foregroundStyle(.primary)
+                        .transition(.scale(scale: 0.5).combined(with: .opacity))
                 }
             }
         }
         .padding(.horizontal, 12)
-        .task(id: asset.map { "\($0.localIdentifier)-\(settings.language.rawValue)" } ?? "") {
-            placeName = nil
-            guard let asset, let location = asset.location else { return }
-            placeName = await placeDescription(for: location)
+        // 核心：当 hasSecondaryInfo 改变（单双行切换）、爱心改变、或切换图片时，
+        // 使用弹簧动画平滑过渡 VStack 布局重排（时间移动到中央/移动到顶部）
+        .animation(.spring(response: 0.32, dampingFraction: 0.8), value: hasSecondaryInfo)
+        .animation(.spring(response: 0.32, dampingFraction: 0.8), value: isFavorite)
+        .animation(.easeInOut(duration: 0.22), value: placeName)
+        .task(id: asset.map { "\($0.localIdentifier)-\(settings.language.rawValue)-\(settings.assetInfoDisplayMode.rawValue)" } ?? "") {
+            guard let asset else { return }
+            
+            switch settings.assetInfoDisplayMode {
+            case .location:
+                if let location = asset.location {
+                    let name = await placeDescription(for: location)
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        placeName = name
+                    }
+                } else {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        placeName = nil
+                    }
+                }
+            case .fileSize:
+                let size = await loadFileSize(for: asset)
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    assetFileSize = size
+                }
+            case .fullDate, .resolution:
+                break
+            }
+        }
+    }
+
+    private func secondaryInfoText(for asset: PHAsset) -> String? {
+        switch settings.assetInfoDisplayMode {
+        case .location:
+            return placeName
+        case .fileSize:
+            if let size = assetFileSize {
+                return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+            }
+            return nil
+        case .fullDate:
+            if let date = asset.creationDate {
+                return settings.fullDate(date)
+            }
+            return nil
+        case .resolution:
+            return "\(asset.pixelWidth) × \(asset.pixelHeight)"
         }
     }
 
@@ -862,5 +931,17 @@ private struct CleaningAssetInfoIsland: View {
             if !parts.contains(candidate) { parts.append(candidate) }
         }
         return uniqueParts.isEmpty ? nil : uniqueParts.joined(separator: " ")
+    }
+
+    private func loadFileSize(for asset: PHAsset) async -> Int64 {
+        estimatedFileSize(for: asset)
+    }
+
+    private func estimatedFileSize(for asset: PHAsset) -> Int64 {
+        if asset.mediaType == .video {
+            return max(Int64(asset.duration * 500_000), 1_000_000)
+        }
+        let pixels = Int64(asset.pixelWidth) * Int64(asset.pixelHeight)
+        return max(Int64(Double(pixels) * 0.32), 200_000)
     }
 }

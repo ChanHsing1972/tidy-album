@@ -41,6 +41,9 @@ final class PhotoLibraryService: PhotoLibraryServiceProtocol {
             options.predicate = predicate
             result = PHAsset.fetchAssets(with: options)
 
+        case .photos:
+            result = PHAsset.fetchAssets(with: .image, options: options)
+
         case .screenshots:
             let collections = PHAssetCollection.fetchAssetCollections(
                 with: .smartAlbum,

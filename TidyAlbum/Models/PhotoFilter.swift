@@ -5,7 +5,9 @@ import SwiftUI
 /// 每个 case 关联对应的 SF Symbol 图标和本地化标题。
 enum PhotoFilter: String, CaseIterable, Identifiable, Equatable {
     /// 全部照片与视频
-    case all = "全部照片"
+    case all = "全部"
+    /// 照片
+    case photos = "照片"
     /// 截屏
     case screenshots = "截屏"
     /// 视频
@@ -29,6 +31,7 @@ enum PhotoFilter: String, CaseIterable, Identifiable, Equatable {
     var icon: String {
         switch self {
         case .all:         "photo.on.rectangle.angled"
+        case .photos:      "photo"
         case .screenshots: "camera.viewfinder"
         case .videos:      "video.fill"
         case .largeVideos: "externaldrive.badge.exclamationmark"

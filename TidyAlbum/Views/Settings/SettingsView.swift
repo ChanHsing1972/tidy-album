@@ -32,12 +32,6 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Picker(selection: $settings.deletionMode) {
-                        Text(settings.t("App Trash First")).tag(DeletionMode.appTrash)
-                        Text(settings.t("Move to System Trash")).tag(DeletionMode.systemTrash)
-                    } label: {
-                        Label(settings.t("Delete Behavior"), systemImage: "trash")
-                    }
                     Picker(selection: $settings.sortOrder) {
                         Text(settings.t("Newest First")).tag(PhotoSortOrder.newestFirst)
                         Text(settings.t("Random")).tag(PhotoSortOrder.random)
@@ -59,12 +53,20 @@ struct SettingsView: View {
                             .disabled(manager.viewedAssetCount == 0)
                         }
                     }
+                    Picker(selection: $settings.assetInfoDisplayMode) {
+                        Text(settings.t("InfoLocation")).tag(AssetInfoDisplayMode.location)
+                        Text(settings.t("InfoFileSize")).tag(AssetInfoDisplayMode.fileSize)
+                        Text(settings.t("InfoCaptured")).tag(AssetInfoDisplayMode.fullDate)
+                        Text(settings.t("InfoResolution")).tag(AssetInfoDisplayMode.resolution)
+                    } label: {
+                        Label(settings.t("Info Display"), systemImage: "info.circle")
+                    }
                     Picker(selection: $settings.progressDisplayMode) {
                         Text(settings.t("Numbers Only")).tag(ProgressDisplayMode.textOnly)
                         Text(settings.t("Progress Bar Only")).tag(ProgressDisplayMode.barOnly)
                         Text(settings.t("Show Both")).tag(ProgressDisplayMode.both)
                     } label: {
-                        Label(settings.t("Progress Display"), systemImage: "info.circle")
+                        Label(settings.t("Progress Display"), systemImage: "chart.bar")
                     }
                     Picker(selection: $settings.cleaningGroupSize) {
                         ForEach(CleaningGroupSize.allCases) { size in
@@ -75,14 +77,7 @@ struct SettingsView: View {
                     }
                 } header: {
                     Text(settings.t("Cleaning Preferences"))
-                } footer: {
-                    if settings.sortOrder == .random, settings.excludesViewedInRandomMode {
-                        Text(settings.t("Hide items already reviewed in previous random sessions."))
-                    }
-                    if settings.deletionMode == .systemTrash {
-                        Text(settings.t("Direct deletion asks Photos for confirmation and cannot be undone inside TidyAlbum."))
-                    }
-                }
+                } 
 
                 Section(settings.t("About & Support")) {
                     LabeledContent(settings.t("Version"), value: appVersion)

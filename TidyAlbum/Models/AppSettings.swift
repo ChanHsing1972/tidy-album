@@ -74,6 +74,15 @@ enum CleaningGroupSize: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
 }
 
+enum AssetInfoDisplayMode: String, CaseIterable, Identifiable {
+    case location
+    case fileSize
+    case fullDate
+    case resolution
+
+    var id: String { rawValue }
+}
+
 // MARK: - Settings Store
 
 @MainActor
@@ -87,6 +96,7 @@ final class SettingsStore: ObservableObject {
         static let progressDisplay = "settings.progressDisplay"
         static let cleaningGroupSize = "settings.cleaningGroupSize"
         static let themeMode = "settings.themeMode"
+        static let assetInfoDisplayMode = "settings.assetInfoDisplayMode"
     }
 
     @Published var language: AppLanguage {
@@ -121,6 +131,10 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(themeMode.rawValue, forKey: Key.themeMode) }
     }
 
+    @Published var assetInfoDisplayMode: AssetInfoDisplayMode {
+        didSet { defaults.set(assetInfoDisplayMode.rawValue, forKey: Key.assetInfoDisplayMode) }
+    }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -133,5 +147,6 @@ final class SettingsStore: ObservableObject {
         progressDisplayMode = ProgressDisplayMode(rawValue: defaults.string(forKey: Key.progressDisplay) ?? "") ?? .barOnly
         cleaningGroupSize = CleaningGroupSize(rawValue: defaults.integer(forKey: Key.cleaningGroupSize)) ?? .compact
         themeMode = ThemeMode(rawValue: defaults.string(forKey: Key.themeMode) ?? "") ?? .dark
+        assetInfoDisplayMode = AssetInfoDisplayMode(rawValue: defaults.string(forKey: Key.assetInfoDisplayMode) ?? "") ?? .location
     }
 }

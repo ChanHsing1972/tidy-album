@@ -186,7 +186,8 @@ struct CleanHomeView: View {
 
     private func localizedTitle(for filter: PhotoFilter) -> String {
         switch filter {
-        case .all: settings.t("All Photos")
+        case .all: settings.t("All")
+        case .photos: settings.t("Photos")
         case .screenshots: settings.t("Screenshots")
         case .videos: settings.t("Videos")
         case .largeVideos: settings.t("Large Videos")
