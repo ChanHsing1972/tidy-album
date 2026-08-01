@@ -65,7 +65,10 @@ enum AppStrings {
         "Group Finished": "本组已完成", "All Done": "全部完成", "Continue with the next group?": "是否继续清理下一组？",
         "Finish Session": "结束清理", "Next Group": "下一组", "Finish": "完成",
         "Theme": "主题", "Follow System": "跟随系统", "Light": "浅色", "Dark": "深色",
-        "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "No device information": "无设备信息", "No camera information": "无镜头信息", "Shutter": "快门"
+        "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "No device information": "无设备信息", "No camera information": "无镜头信息", "Shutter": "快门",
+        "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑删除，下滑收藏，左右滑动浏览照片。",
+        "Private & Local": "私密且仅在本地", "Everything stays on your device. No data is ever uploaded.": "所有内容都保留在你的设备上，绝不会上传。",
+        "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时查看累计清理项目与释放空间。", "Get Started": "开始使用"
     ]
 }
 

@@ -4,9 +4,11 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("app.hasLaunchedBefore") private var hasLaunchedBefore = false
     @StateObject private var settings: SettingsStore
     @StateObject private var analytics: AnalyticsStore
     @StateObject private var manager: PhotoManager
+    @State private var showsWelcome = false
 
     init() {
         let settings = SettingsStore()
@@ -42,6 +44,18 @@ struct ContentView: View {
         .tint(.blue)
         .environment(\.locale, settings.language.locale)
         .preferredColorScheme(settings.themeMode.colorScheme)
+        .sheet(isPresented: $showsWelcome) {
+            WelcomeView(settings: settings)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(Color(uiColor: .systemGroupedBackground))
+                .interactiveDismissDisabled()
+        }
+        .onAppear {
+            guard !hasLaunchedBefore else { return }
+            hasLaunchedBefore = true
+            showsWelcome = true
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { manager.checkPermission() }
         }

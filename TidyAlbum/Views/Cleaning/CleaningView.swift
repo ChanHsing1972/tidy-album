@@ -184,11 +184,13 @@ struct CleaningView: View {
             Text("\(current) / \(total)")
                 .font(.caption2.monospacedDigit().weight(.semibold))
                 .contentTransition(.numericText())
+                .animation(.spring(duration: 0.36, bounce: 0.1), value: current)
         case .both:
             VStack(spacing: 5) {
                 Text("\(current) / \(total)")
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     .contentTransition(.numericText())
+                    .animation(.spring(duration: 0.36, bounce: 0.1), value: current)
                 AnimatedProgressBar(value: value).frame(width: 108, height: 4)
             }
         }
@@ -272,6 +274,7 @@ private struct CleaningCardStage: View {
     private let navigationSpring = Animation.spring(duration: 0.3, bounce: 0.1)
     private let returnSpring = Animation.spring(duration: 0.34, bounce: 0.18)
     private let deletionCompletionAnimation = Animation.smooth(duration: 0.28)
+    private let deletionCommitDelay = Duration.milliseconds(320)
 
     private var currentIndex: Int? {
         assets.firstIndex { $0.localIdentifier == selectedAssetID }
@@ -499,8 +502,7 @@ private struct CleaningCardStage: View {
             ))
         }
         gestureDriver.scheduleTransition(after: .milliseconds(300)) {
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
+            let transaction = Transaction(animation: nil)
             withTransaction(transaction) {
                 selectedAssetID = destinationID
                 clearGestureState()
@@ -555,9 +557,10 @@ private struct CleaningCardStage: View {
                 progress: 1
             ))
         }
-        gestureDriver.scheduleTransition(after: .milliseconds(280)) {
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
+        // Keep the target card at its exact endpoint for a few display frames before
+        // re-indexing the collection in the next Core Animation commit.
+        gestureDriver.scheduleTransition(after: deletionCommitDelay) {
+            let transaction = Transaction(animation: nil)
             withTransaction(transaction) {
                 onDelete(asset, index)
                 selectedAssetID = deletionTarget.pageID
@@ -572,8 +575,7 @@ private struct CleaningCardStage: View {
             return
         }
         motion.isTransitioning = true
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
+        let transaction = Transaction(animation: nil)
         withTransaction(transaction) {
             onToggleFavorite(asset, index)
         }
@@ -784,40 +786,56 @@ private struct GroupCompletionPage: View {
     let onEnd: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: hasNextGroup ? "checkmark" : "flag.checkered")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(width: 64, height: 64)
-                .background(.primary.opacity(0.1), in: Circle())
-            Text(settings.t(hasNextGroup ? "Group Finished" : "All Done"))
-                .font(.title2.weight(.bold))
-            if hasNextGroup {
-                Text(settings.t("Continue with the next group?"))
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                Button(settings.t("Next Group"), action: onNextGroup)
+        VStack(spacing: 28) {
+            VStack(spacing: 16) {
+                Image(systemName: hasNextGroup ? "checkmark.circle.fill" : "flag.checkered.circle.fill")
+                    .font(.system(size: 68, weight: .semibold))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, Color.green)
+                    .shadow(color: .black.opacity(0.16), radius: 12, y: 5)
+                VStack(spacing: 8) {
+                    Text(settings.t(hasNextGroup ? "Group Finished" : "All Done"))
+                        .font(.title.bold())
+                    Text(settings.t(
+                        hasNextGroup
+                            ? "Continue with the next group?"
+                            : "You reviewed every item in this session."
+                    ))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            VStack(spacing: 14) {
+                if hasNextGroup {
+                    Button(action: onNextGroup) {
+                        Label(settings.t("Next Group"), systemImage: "arrow.right")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                    }
                     .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .controlSize(.large)
-                Button(settings.t("Finish Session"), action: onEnd)
-                    .buttonStyle(.plain)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            } else {
-                Button(settings.t("Finish"), action: onEnd)
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
+                    Button(settings.t("Finish Session"), action: onEnd)
+                        .buttonStyle(.plain)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button(action: onEnd) {
+                        Label(settings.t("Finish"), systemImage: "checkmark")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             }
         }
-        .frame(maxWidth: 420, minHeight: 330)
-        .padding(28)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .buttonBorderShape(.roundedRectangle(radius: 8))
+        .padding(32)
+        .frame(maxWidth: 360, minHeight: 360)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .stroke(.primary.opacity(0.08), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.white.opacity(0.16), lineWidth: 0.5)
         }
         .padding(.horizontal, 24)
     }
@@ -830,6 +848,10 @@ private struct CleaningAssetInfoIsland: View {
 
     @State private var placeName: String?
     @State private var assetFileSize: Int64?
+
+    private var assetIdentifier: String {
+        asset?.localIdentifier ?? ""
+    }
 
     // 同步判断是否有二级信息（决定 VStack 是单行还是双行）
     private var hasSecondaryInfo: Bool {
@@ -882,6 +904,7 @@ private struct CleaningAssetInfoIsland: View {
         .padding(.horizontal, 12)
         // 核心：当 hasSecondaryInfo 改变（单双行切换）、爱心改变、或切换图片时，
         // 使用弹簧动画平滑过渡 VStack 布局重排（时间移动到中央/移动到顶部）
+        .animation(.easeInOut(duration: 0.22), value: assetIdentifier)
         .animation(.spring(response: 0.32, dampingFraction: 0.8), value: hasSecondaryInfo)
         .animation(.spring(response: 0.32, dampingFraction: 0.8), value: isFavorite)
         .animation(.easeInOut(duration: 0.22), value: placeName)

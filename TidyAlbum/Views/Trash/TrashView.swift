@@ -88,20 +88,13 @@ struct TrashView: View {
         let identifier = asset.localIdentifier
         guard !restoringAssetIDs.contains(identifier) else { return }
 
-        // 标记正在撤回
-        restoringAssetIDs.insert(identifier)
-
-        // 💡 离开当前帧，触发微量的缩放淡出，随后将数据从 TrashBin 中移除，激发 LazyVGrid 补位动画
         withAnimation(.easeOut(duration: 0.15)) {
             _ = restoringAssetIDs.insert(identifier)
         }
 
         Task { @MainActor in
-            // 稍作微小延迟让淡出动画完成
-            try? await Task.sleep(for: .milliseconds(120))
+            try? await Task.sleep(for: .milliseconds(160))
             guard !Task.isCancelled else { return }
-            
-            // 💡 在 spring 动画上下文中从数据源中剔除，引发后面的 Cell 自动前移动画
             withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 manager.restoreFromTrash(asset)
                 restoringAssetIDs.remove(identifier)
@@ -214,6 +207,7 @@ private struct TrashQueueItem: View, Equatable {
         }
         .opacity(isRestoring ? 0 : 1)
         .scaleEffect(isRestoring ? 0.8 : 1)
+        .animation(.easeOut(duration: 0.15), value: isRestoring)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }
