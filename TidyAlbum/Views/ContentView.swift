@@ -1,8 +1,10 @@
 import SwiftUI
+import Inject
 
 // MARK: - Root Tab Architecture
 
 struct ContentView: View {
+    @ObserveInjection var inject
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("app.hasLaunchedBefore") private var hasLaunchedBefore = false
     @StateObject private var settings: SettingsStore
@@ -27,6 +29,7 @@ struct ContentView: View {
     }
 
     var body: some View {
+        let _ = inject
         TabView {
             CleanHomeView(manager: manager, settings: settings)
                 .tabItem {

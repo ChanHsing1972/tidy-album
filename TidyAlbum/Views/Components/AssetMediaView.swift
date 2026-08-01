@@ -2,8 +2,10 @@ import AVKit
 import Photos
 import PhotosUI
 import SwiftUI
+import Inject
 
 struct AssetMediaView: View {
+    @ObserveInjection var inject
     let asset: PHAsset
     var contentMode: ContentMode = .fit
     var showsVideoBadge = true
@@ -16,6 +18,7 @@ struct AssetMediaView: View {
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
+        let _ = inject
         GeometryReader { proxy in
             ZStack {
                 Color.clear

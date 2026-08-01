@@ -3,10 +3,12 @@ import MapKit
 import Photos
 import SwiftUI
 import UniformTypeIdentifiers
+import Inject
 
 // MARK: - System-Style Asset Information
 
 struct AssetDetailsView: View {
+    @ObserveInjection var inject
     let asset: PHAsset
     @ObservedObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
@@ -30,6 +32,7 @@ struct AssetDetailsView: View {
     }
 
     var body: some View {
+        let _ = inject
         NavigationStack {
             ScrollView {
                 VStack(spacing: 12) {

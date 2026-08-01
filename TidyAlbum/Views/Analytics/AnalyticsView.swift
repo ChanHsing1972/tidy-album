@@ -1,9 +1,11 @@
 import Charts
 import SwiftUI
+import Inject
 
 // MARK: - Analytics Dashboard
 
 struct AnalyticsView: View {
+    @ObserveInjection var inject
     @ObservedObject var store: AnalyticsStore
     @ObservedObject var settings: SettingsStore
     @ObservedObject var manager: PhotoManager
@@ -17,6 +19,7 @@ struct AnalyticsView: View {
     private var stats: CleanupStatistics { store.statistics }
 
     var body: some View {
+        let _ = inject
         NavigationStack {
             Group {
                 if stats.reviewedCount == 0 && stats.cleanedCount == 0 {

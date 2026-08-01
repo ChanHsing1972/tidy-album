@@ -2,8 +2,10 @@ import CoreLocation
 import Photos
 import SwiftUI
 import UIKit
+import Inject
 
 struct CleaningView: View {
+    @ObserveInjection var inject
     @ObservedObject var manager: PhotoManager
     @ObservedObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
@@ -31,6 +33,7 @@ struct CleaningView: View {
     }
 
     var body: some View {
+        let _ = inject
         NavigationStack {
             ZStack {
                 CleaningBackdropView(
@@ -257,6 +260,7 @@ struct CleaningView: View {
 // MARK: Gesture Stage
 
 private struct CleaningCardStage: View {
+    @ObserveInjection var inject
     let assets: [PHAsset]
     @Binding var selectedAssetID: String
     let interaction: CleaningInteractionState
@@ -308,6 +312,7 @@ private struct CleaningCardStage: View {
     }
 
     var body: some View {
+        let _ = inject
         GeometryReader { proxy in
             let pageWidth = proxy.size.width + 18
             let verticalProgress = min(abs(motion.translation.height) / actionThreshold, 1)
@@ -770,9 +775,11 @@ private struct AssetSheetSelection: Identifiable {
 }
 
 private struct AnimatedProgressBar: View {
+    @ObserveInjection var inject
     let value: Double
 
     var body: some View {
+        let _ = inject
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 Capsule().fill(.primary.opacity(0.15))
@@ -787,6 +794,7 @@ private struct AnimatedProgressBar: View {
 }
 
 private struct GroupCompletionPage: View {
+    @ObserveInjection var inject
     @ObservedObject var settings: SettingsStore
     let hasNextGroup: Bool
     let groupNumber: Int
@@ -799,6 +807,7 @@ private struct GroupCompletionPage: View {
     @ScaledMetric(relativeTo: .title) private var statusSize = 112.0
 
     var body: some View {
+        let _ = inject
         VStack(spacing: 0) {
             Spacer(minLength: 24)
             completionStatus
@@ -929,6 +938,7 @@ private struct GroupCompletionPage: View {
 }
 
 private struct CleaningAssetInfoIsland: View {
+    @ObserveInjection var inject
     let asset: PHAsset?
     @ObservedObject var settings: SettingsStore
     let isFavorite: Bool
@@ -956,6 +966,7 @@ private struct CleaningAssetInfoIsland: View {
     }
 
     var body: some View {
+        let _ = inject
         HStack(spacing: 6) {
             if let asset {
                 VStack(spacing: 2) {

@@ -1,8 +1,10 @@
 import SwiftUI
+import Inject
 
 // MARK: - Session Summary
 
 struct SummaryView: View {
+    @ObserveInjection var inject
     @ObservedObject var manager: PhotoManager
     @ObservedObject var settings: SettingsStore
     var onHome: () -> Void
@@ -16,6 +18,7 @@ struct SummaryView: View {
     private var summary: CleaningSessionSummary { manager.sessionSummary }
 
     var body: some View {
+        let _ = inject
         ScrollView {
             VStack(spacing: 34) {
                 completionHeader

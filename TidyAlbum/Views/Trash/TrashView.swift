@@ -1,9 +1,11 @@
 import Photos
 import SwiftUI
+import Inject
 
 // MARK: - Pending Deletion Queue
 
 struct TrashView: View {
+    @ObserveInjection var inject
     @ObservedObject var manager: PhotoManager
     @ObservedObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
@@ -15,6 +17,7 @@ struct TrashView: View {
     private let columns = [GridItem(.adaptive(minimum: 108), spacing: 3)]
 
     var body: some View {
+        let _ = inject
         NavigationStack {
             Group {
                 if manager.trashBin.isEmpty { emptyState } else { queueContent }
@@ -168,6 +171,7 @@ struct TrashView: View {
 // MARK: - Item View
 
 private struct TrashQueueItem: View, Equatable {
+    @ObserveInjection var inject
     let asset: PHAsset
     let isRestoring: Bool
     let detailsLabel: String
@@ -183,6 +187,7 @@ private struct TrashQueueItem: View, Equatable {
     }
 
     var body: some View {
+        let _ = inject
         ZStack(alignment: .bottomTrailing) {
             Button(action: onDetails) {
                 AssetMediaView(asset: asset, contentMode: .fill)

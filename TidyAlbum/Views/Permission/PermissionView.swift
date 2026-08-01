@@ -1,12 +1,15 @@
 import Photos
 import SwiftUI
+import Inject
 
 // MARK: - Photo Access Prompt
 
 struct PermissionView: View {
+    @ObserveInjection var inject
     @ObservedObject var settings: SettingsStore
 
     var body: some View {
+        let _ = inject
         ContentUnavailableView {
             Label(settings.t("Photo Access Required"), systemImage: "lock.shield")
         } description: {

@@ -1,14 +1,17 @@
 import SwiftUI
+import Inject
 
 // MARK: - Settings
 
 struct SettingsView: View {
+    @ObserveInjection var inject
     @ObservedObject var settings: SettingsStore
     @ObservedObject var manager: PhotoManager
 
     @State private var showsClearViewedConfirmation = false
 
     var body: some View {
+        let _ = inject
         NavigationStack {
             Form {
                 Section(settings.t("General")) {

@@ -1,8 +1,10 @@
 import SwiftUI
+import Inject
 
 // MARK: - Library Collection Cell
 
 struct FilterCardView: View {
+    @ObserveInjection var inject
     let filter: PhotoFilter
     let title: String
     let count: Int
@@ -12,6 +14,7 @@ struct FilterCardView: View {
     @State private var bounceTrigger = 0
 
     var body: some View {
+        let _ = inject
         Button(action: action) {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: filter.icon)

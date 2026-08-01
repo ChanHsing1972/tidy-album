@@ -1,10 +1,12 @@
 import Photos
 import PhotosUI
 import SwiftUI
+import Inject
 
 // MARK: - Clean Home
 
 struct CleanHomeView: View {
+    @ObserveInjection var inject
     @ObservedObject var manager: PhotoManager
     @ObservedObject var settings: SettingsStore
 
@@ -14,6 +16,7 @@ struct CleanHomeView: View {
     @State private var presentsSummaryAfterCleaning = false
 
     var body: some View {
+        let _ = inject
         NavigationStack {
             Group {
                 if manager.isAuthorized {
@@ -105,7 +108,7 @@ struct CleanHomeView: View {
                 Image(systemName: "trash")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 440, height: 440)
                     .background(.primary.opacity(0.06), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
                     Text(settings.t("Pending deletion"))

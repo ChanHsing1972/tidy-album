@@ -1,4 +1,5 @@
 import SwiftUI
+import Inject
 
 // MARK: - Welcome Onboarding (Apple Native Style)
 
@@ -6,6 +7,7 @@ import SwiftUI
 /// 结构：极简 Headline → 纵向 Feature List → 底部胶囊/大圆角主操作按钮。
 /// 动效：Damping 1.0 / Response 0.4 Spring 弹簧动画 + 阶梯式 Staggered Reveal。
 struct WelcomeView: View {
+    @ObserveInjection var inject
     @ObservedObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
@@ -18,6 +20,7 @@ struct WelcomeView: View {
     private let delayButton     = 0.24
 
     var body: some View {
+        let _ = inject
         ZStack(alignment: .bottom) {
             // 背景：系统默认背景色
             Color(uiColor: .systemGroupedBackground)
@@ -140,12 +143,14 @@ struct WelcomeView: View {
 // MARK: - Feature Row Component
 
 private struct WelcomeFeatureRow: View {
+    @ObserveInjection var inject
     let icon: String
     let color: Color
     let title: String
     let description: String
 
     var body: some View {
+        let _ = inject
         HStack(alignment: .top, spacing: 16) {
             // 左侧 SF Symbol Icon
             Image(systemName: icon)

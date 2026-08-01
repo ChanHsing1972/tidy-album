@@ -1,8 +1,10 @@
 import Photos
 import SwiftUI
 import UIKit
+import Inject
 
 struct CleaningBackdropView: View {
+    @ObserveInjection var inject
     let assets: [PHAsset]
     let selectedAssetID: String
     let sessionGroupNumber: Int
@@ -24,6 +26,7 @@ struct CleaningBackdropView: View {
     }
 
     var body: some View {
+        let _ = inject
         GeometryReader { proxy in
             let transition = interaction.backdropTransition
             ZStack {
@@ -221,10 +224,12 @@ private struct BackdropLoadKey: Hashable {
 }
 
 private struct RenderedBackdropImageLayer: View {
+    @ObserveInjection var inject
     let image: UIImage
     let size: CGSize
 
     var body: some View {
+        let _ = inject
         Image(uiImage: image)
             .resizable()
             .aspectRatio(contentMode: .fill)
@@ -234,10 +239,12 @@ private struct RenderedBackdropImageLayer: View {
 }
 
 private struct RealtimeBackdropImageLayer: View {
+    @ObserveInjection var inject
     let image: UIImage
     let size: CGSize
 
     var body: some View {
+        let _ = inject
         Image(uiImage: image)
             .resizable()
             .aspectRatio(contentMode: .fill)

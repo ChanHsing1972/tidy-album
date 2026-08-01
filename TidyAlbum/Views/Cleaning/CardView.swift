@@ -1,7 +1,9 @@
 import Photos
 import SwiftUI
+import Inject
 
 struct CardView: View, Equatable {
+    @ObserveInjection var inject
     let asset: PHAsset
     var isActive = false
 
@@ -15,6 +17,7 @@ struct CardView: View, Equatable {
     }
 
     var body: some View {
+        let _ = inject
         GeometryReader { proxy in
             let mediaSize = fittedSize(aspectRatio: assetAspectRatio, inside: proxy.size)
             
