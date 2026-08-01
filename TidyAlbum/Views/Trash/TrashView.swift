@@ -27,7 +27,7 @@ struct TrashView: View {
                     ProgressView()
                         .controlSize(.large)
                         .padding(24)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .appleSurface(cornerRadius: 16)
                 }
             }
         }
@@ -77,8 +77,7 @@ struct TrashView: View {
             }
             .padding(.horizontal, 4)
             .padding(.top, 8)
-            // 💡 3. 核心：只对 trashBin 数组变化开启轻量弹簧动画，保证前移平滑流畅！
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: manager.trashBin)
+            .animation(.spring(response: 0.35, dampingFraction: 1), value: manager.trashBin)
         }
     }
 
@@ -95,7 +94,7 @@ struct TrashView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(160))
             guard !Task.isCancelled else { return }
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 1)) {
                 manager.restoreFromTrash(asset)
                 restoringAssetIDs.remove(identifier)
             }
@@ -133,7 +132,7 @@ struct TrashView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 1)) {
                         manager.restoreAllFromTrash()
                     }
                 } label: {

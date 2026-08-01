@@ -9,14 +9,14 @@ enum AnimationPresets {
 
     /// 页面转场动画 — 响应稍慢，阻尼适中，适合页面级切换
     static let pageTransition: Animation = .spring(
-        response: 0.6,
-        dampingFraction: 0.8
+        response: 0.4,
+        dampingFraction: 1
     )
 
     /// 卡片飞出动画 — 响应快，阻尼低，视觉冲击力适合滑动手势
     static let cardFlyOut: Animation = .spring(
         response: 0.4,
-        dampingFraction: 0.6
+        dampingFraction: 0.8
     )
 
     // MARK: - 缓动动画 (Ease Animations)

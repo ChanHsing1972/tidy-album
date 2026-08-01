@@ -13,9 +13,7 @@ struct FilterCardView: View {
 
     var body: some View {
         Button(action: action) {
-            // 💡 1. 显式设为 .center 对齐，确保大图标与两行文字垂直居中同步
             HStack(alignment: .center, spacing: 12) {
-                // 💡 2. 调大图标字号（如 .title2 / .title3），并移除了固定 frame(width:34, height:34)
                 Image(systemName: filter.icon)
                     .font(.title.weight(.medium))
                     .foregroundStyle(isSelected ? Color.accentColor : .secondary)
@@ -52,8 +50,9 @@ struct FilterCardView: View {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .stroke(isSelected ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.04), lineWidth: 1)
             }
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ApplePressButtonStyle())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(.spring(response: 0.32, dampingFraction: 0.75), value: isSelected)
         .onChange(of: isSelected) { _, selected in

@@ -328,6 +328,7 @@ private struct CleaningCardStage: View {
                                 hasNextGroup: hasNextGroup,
                                 groupNumber: groupNumber,
                                 groupCount: groupCount,
+                                isActive: isCurrent,
                                 onNextGroup: onNextGroup,
                                 onEnd: onEnd
                             )
@@ -790,102 +791,140 @@ private struct GroupCompletionPage: View {
     let hasNextGroup: Bool
     let groupNumber: Int
     let groupCount: Int
+    let isActive: Bool
     let onNextGroup: () -> Void
     let onEnd: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isVisible = false
+    @ScaledMetric(relativeTo: .title) private var statusSize = 112.0
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 28) {
-                groupProgressBadge
-                    .staggeredReveal(isVisible: isVisible, delay: 0, duration: DesignTokens.Spring.momentum.response)
+            Spacer(minLength: 24)
+            completionStatus
+            Spacer(minLength: 32)
+            actions
+            Spacer(minLength: 18)
+        }
+        .frame(maxWidth: 380, maxHeight: .infinity)
+        .padding(.horizontal, 28)
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.2), radius: 14, y: 5)
+    }
 
-                VStack(spacing: 10) {
-                    Text(settings.t(hasNextGroup ? "Group Complete" : "All Done"))
-                        .font(.title.bold())
-                        .tracking(DesignTokens.Tracking.title)
-                    Text(settings.t(
-                        hasNextGroup
-                            ? "All items in this group reviewed"
-                            : "You reviewed every item in this session."
+    private var completionStatus: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.1))
+                Circle()
+                    .stroke(.white.opacity(0.18), lineWidth: 6)
+//                Circle()
+//                    .trim(from: 0, to: animatedProgress)
+//                    .stroke(
+//                        .white,
+//                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
+//                    )
+//                    .rotationEffect(.degrees(-90))
+                Image(systemName: "checkmark")
+                    .font(.system(size: min(statusSize, 142) * 0.34, weight: .bold))
+                    .foregroundStyle(.white)
+                    .scaleEffect(isActive || reduceMotion ? 1 : 0.82)
+            }
+            .frame(
+                width: min(statusSize, 142),
+                height: min(statusSize, 142)
+            )
+            .animation(completionAnimation, value: isActive)
+            .accessibilityHidden(true)
+
+            VStack(spacing: 8) {
+                Text(settings.t(hasNextGroup ? "Group Complete" : "All Done"))
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+
+                if groupCount > 1 {
+                    Text(String(
+                        format: settings.t("Group X of Y"),
+                        groupNumber, groupCount
                     ))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .tracking(DesignTokens.Tracking.body)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                .staggeredReveal(isVisible: isVisible, delay: 0.08, duration: DesignTokens.Spring.default.response)
-
-                actionButtons
-                    .staggeredReveal(isVisible: isVisible, delay: 0.16, duration: DesignTokens.Spring.default.response)
             }
-            .padding(32)
+            .accessibilityElement(children: .combine)
         }
-        .frame(maxWidth: 360, minHeight: 380)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(.white.opacity(0.12), lineWidth: 0.5)
-        }
-        .padding(.horizontal, 24)
-        .onAppear { isVisible = true }
+        .opacity(isActive || reduceMotion ? 1 : 0.82)
+        .offset(y: isActive || reduceMotion ? 0 : 8)
+        .animation(completionAnimation, value: isActive)
     }
 
-    // MARK: - Progress Badge
-
-    private var groupProgressBadge: some View {
-        VStack(spacing: 14) {
-            if groupCount > 1 {
-                Text(String(
-                    format: settings.t("Group X of Y"),
-                    groupNumber, groupCount
-                ))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .tracking(DesignTokens.Tracking.caption)
-            }
-
-            Image(systemName: hasNextGroup ? "flag.checkered.2.crossed" : "checkmark.seal.fill")
-                .font(.system(size: 56, weight: .semibold))
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.white, Color.green)
-                .shadow(color: .green.opacity(0.2), radius: 14, y: 6)
-        }
-    }
-
-    // MARK: - Action Buttons
-
-    private var actionButtons: some View {
+    private var actions: some View {
         VStack(spacing: 14) {
             if hasNextGroup {
                 Button(action: onNextGroup) {
-                    Label(settings.t("Clean Next Group"), systemImage: "arrow.right")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 50)
+                    HStack(spacing: 12) {
+                        Text(settings.t("Clean Next Group"))
+                        Spacer(minLength: 8)
+                        Image(systemName: "arrow.right")
+                            .accessibilityHidden(true)
+                    }
+                    .font(.headline)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .foregroundStyle(.black)
+                    .background(.white, in: Capsule())
+                    .contentShape(Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 12))
+                .buttonStyle(ApplePressButtonStyle())
 
                 Button(settings.t("Finish Session"), action: onEnd)
-                    .buttonStyle(.plain)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.76))
+                    .frame(minHeight: 44)
+                    .buttonStyle(ApplePressButtonStyle())
             } else {
                 Button(action: onEnd) {
-                    Label(settings.t("Finish"), systemImage: "checkmark")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 50)
+                    HStack(spacing: 12) {
+                        Text(settings.t("Finish"))
+                        Spacer(minLength: 8)
+                        Image(systemName: "checkmark")
+                            .accessibilityHidden(true)
+                    }
+                    .font(.headline)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .foregroundStyle(.black)
+                    .background(.white, in: Capsule())
+                    .contentShape(Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.roundedRectangle(radius: 12))
+                .buttonStyle(ApplePressButtonStyle())
             }
         }
+        .opacity(isActive || reduceMotion ? 1 : 0.82)
+        .offset(y: isActive || reduceMotion ? 0 : 8)
+        .animation(completionAnimation.delay(reduceMotion ? 0 : 0.04), value: isActive)
+    }
+
+    private var groupProgress: CGFloat {
+        guard groupCount > 0 else { return 1 }
+        return min(max(CGFloat(groupNumber) / CGFloat(groupCount), 0), 1)
+    }
+
+    private var animatedProgress: CGFloat {
+        reduceMotion || isActive ? groupProgress : 0.001
+    }
+
+    private var completionAnimation: Animation {
+        reduceMotion
+            ? .easeOut(duration: 0.18)
+            : .spring(
+                response: DesignTokens.Spring.entrance.response,
+                dampingFraction: DesignTokens.Spring.entrance.damping
+            )
     }
 }
 

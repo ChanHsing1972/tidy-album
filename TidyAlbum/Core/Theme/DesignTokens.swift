@@ -162,19 +162,14 @@ enum DesignTokens {
         static let entrance: (damping: Double, response: Double) = (1.0, 0.45)
     }
 
-    // MARK: - 排版追踪 (Apple Design 规范 — size-specific tracking)
+    // MARK: - 排版追踪
 
-    /// 字号相关的 letter-spacing 参数。
-    /// 大字号需要负追踪（字母间距视觉上过大），小字号需要正追踪（提升可读性）。
+    /// San Francisco 已内置按字号优化的字距表，不再叠加人工字距。
     enum Tracking {
-        /// 大标题负追踪 — 字号 ≥ 28pt 的 display 文字
-        static let display: CGFloat = -0.02
-        /// 中标题微负追踪 — 字号 20–27pt 的标题文字
-        static let title: CGFloat = -0.01
-        /// 正文标准追踪 — 字号 13–19pt
+        static let display: CGFloat = 0
+        static let title: CGFloat = 0
         static let body: CGFloat = 0
-        /// 小字正追踪 — 字号 ≤ 12pt 的辅助文字
-        static let caption: CGFloat = 0.01
+        static let caption: CGFloat = 0
     }
 }
 

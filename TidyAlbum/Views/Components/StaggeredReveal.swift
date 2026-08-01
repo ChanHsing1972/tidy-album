@@ -23,7 +23,7 @@ struct StaggeredReveal: ViewModifier {
             .offset(y: isVisible || reduceMotion ? 0 : 12)
             .animation(
                 reduceMotion
-                    ? nil
+                    ? .easeOut(duration: 0.18)
                     : .spring(response: duration, dampingFraction: 1.0).delay(delay),
                 value: isVisible
             )
@@ -39,5 +39,55 @@ extension View {
         duration: Double = 0.4
     ) -> some View {
         modifier(StaggeredReveal(isVisible: isVisible, delay: delay, duration: duration))
+    }
+
+    func appleSurface(cornerRadius: CGFloat = 20) -> some View {
+        modifier(AppleSurface(cornerRadius: cornerRadius))
+    }
+}
+
+struct ApplePressButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(
+                reduceMotion
+                    ? .easeOut(duration: 0.08)
+                    : .spring(response: 0.22, dampingFraction: 1),
+                value: configuration.isPressed
+            )
+    }
+}
+
+private struct AppleSurface: ViewModifier {
+    let cornerRadius: CGFloat
+
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var fillStyle: AnyShapeStyle {
+        if reduceTransparency {
+            AnyShapeStyle(Color(uiColor: .secondarySystemGroupedBackground))
+        } else {
+            AnyShapeStyle(Material.regular)
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(fillStyle)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        Color.primary.opacity(contrast == .increased ? 0.32 : 0.08),
+                        lineWidth: contrast == .increased ? 1 : 0.5
+                    )
+            }
     }
 }

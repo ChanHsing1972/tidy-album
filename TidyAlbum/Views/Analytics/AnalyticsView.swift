@@ -8,7 +8,11 @@ struct AnalyticsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var manager: PhotoManager
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var heroNumberSize = 54.0
     @State private var showsResetConfirmation = false
+    @State private var isVisible = false
 
     private var stats: CleanupStatistics { store.statistics }
 
@@ -21,30 +25,9 @@ struct AnalyticsView: View {
                     analyticsContent
                 }
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color(uiColor: .systemBackground))
             .navigationTitle(settings.t("Analytics"))
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button(role: .destructive) {
-                            showsResetConfirmation = true
-                        } label: {
-                            Label(
-                                settings.t("Reset Statistics"),
-                                systemImage: "arrow.counterclockwise"
-                            )
-                        }
-                        .tint(.red) // 💡 1. 显式把内部按钮重新强制指定为红色，拦截外层的 .tint(.primary)
-                        .disabled(stats.reviewedCount == 0 && stats.cleanedCount == 0)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.body.weight(.semibold))
-                            .contentShape(Rectangle())
-                    }
-                    .tint(.primary) // 💡 2. 确保外面的三个点是黑/白色
-                    .accessibilityLabel(settings.t("More"))
-                }
-            }
+            .toolbar { analyticsToolbar }
         }
         .confirmationDialog(
             settings.t("Reset Cleanup History?"),
@@ -58,115 +41,195 @@ struct AnalyticsView: View {
         }
     }
 
-    // MARK: Empty State
-
-    private var analyticsEmptyState: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            Image(systemName: "chart.bar.xaxis")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(.secondary)
-                .frame(width: 96, height: 96)
-                .background(.primary.opacity(0.06), in: Circle())
-            VStack(spacing: 8) {
-                Text(settings.t("No cleanup history yet"))
-                    .font(.title3.weight(.semibold))
-                Text(settings.t("Start a cleaning session to see your progress here."))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+    @ToolbarContentBuilder private var analyticsToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Button(role: .destructive) {
+                    showsResetConfirmation = true
+                } label: {
+                    Label(
+                        settings.t("Reset Statistics"),
+                        systemImage: "arrow.counterclockwise"
+                    )
+                }
+                .disabled(stats.reviewedCount == 0 && stats.cleanedCount == 0)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
+                    .contentShape(Rectangle())
             }
-            Spacer()
+            .tint(.primary)
+            .accessibilityLabel(settings.t("More"))
         }
-        .frame(maxWidth: .infinity)
     }
 
-    // MARK: Content
+    private var analyticsEmptyState: some View {
+        ContentUnavailableView {
+            Label(settings.t("No cleanup history yet"), systemImage: "chart.bar.xaxis")
+        } description: {
+            Text(settings.t("Start a cleaning session to see your progress here."))
+        }
+        .symbolRenderingMode(.hierarchical)
+        .padding()
+    }
 
     private var analyticsContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 0) {
                 overview
+                    .padding(.bottom, 30)
+                    .staggeredReveal(
+                        isVisible: isVisible,
+                        duration: DesignTokens.Spring.entrance.response
+                    )
+                sectionDivider
                 activity
+                    .sectionSpacing()
+                    .staggeredReveal(
+                        isVisible: isVisible,
+                        delay: 0.06,
+                        duration: DesignTokens.Spring.default.response
+                    )
+                sectionDivider
                 mediaBreakdown
+                    .sectionSpacing()
+                    .staggeredReveal(
+                        isVisible: isVisible,
+                        delay: 0.11,
+                        duration: DesignTokens.Spring.default.response
+                    )
+                sectionDivider
                 cleanupResults
+                    .sectionSpacing()
+                    .staggeredReveal(
+                        isVisible: isVisible,
+                        delay: 0.16,
+                        duration: DesignTokens.Spring.default.response
+                    )
+                sectionDivider
                 productivity
+                    .padding(.top, 30)
+                    .staggeredReveal(
+                        isVisible: isVisible,
+                        delay: 0.21,
+                        duration: DesignTokens.Spring.default.response
+                    )
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 32)
+            .frame(maxWidth: 720, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.top, 10)
+            .padding(.bottom, 36)
+            .frame(maxWidth: .infinity)
         }
+        .task {
+            isVisible = false
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            isVisible = true
+        }
+        .onDisappear { isVisible = false }
     }
 
     // MARK: Overview
 
     private var overview: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 8) {
-                Image(systemName: "internaldrive")
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 7) {
+                Label(settings.t("Space Reclaimed"), systemImage: "internaldrive.fill")
                     .font(.subheadline.weight(.semibold))
-                Text(settings.t("Space Reclaimed"))
-                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(ByteCountFormatter.string(
+                    fromByteCount: stats.reclaimedBytes,
+                    countStyle: .file
+                ))
+                    .font(.system(
+                        size: min(heroNumberSize, 76),
+                        weight: .bold,
+                        design: .rounded
+                    ))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .contentTransition(.numericText())
             }
-            .foregroundStyle(.secondary)
+            overviewMetrics
+        }
+        .accessibilityElement(children: .contain)
+    }
 
-            Text(ByteCountFormatter.string(fromByteCount: stats.reclaimedBytes, countStyle: .file))
-                .font(.system(size: 40, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .contentTransition(.numericText())
-
-            Divider()
-
-            HStack(spacing: 0) {
+    @ViewBuilder private var overviewMetrics: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: 0) {
+                overviewMetricRow(value: stats.cleanedCount, title: settings.t("Items Cleaned"))
+                Divider()
+                overviewMetricRow(value: stats.reviewedCount, title: settings.t("Items Reviewed"))
+                Divider()
+                overviewMetricRow(value: manager.trashBin.count, title: settings.t("Pending deletion"))
+            }
+        } else {
+            HStack(alignment: .top, spacing: 0) {
                 overviewMetric(value: stats.cleanedCount, title: settings.t("Items Cleaned"))
-                Divider().frame(height: 42)
+                Divider().frame(height: 58)
                 overviewMetric(value: stats.reviewedCount, title: settings.t("Items Reviewed"))
-                Divider().frame(height: 42)
+                Divider().frame(height: 58)
                 overviewMetric(value: manager.trashBin.count, title: settings.t("Pending deletion"))
             }
         }
-        .padding(22)
-        .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-        )
     }
 
     private func overviewMetric(value: Int, title: String) -> some View {
-        VStack(spacing: 5) {
+        VStack(alignment: .leading, spacing: 5) {
             Text("\(value)")
-                .font(.title3.bold().monospacedDigit())
+                .font(.title2.bold().monospacedDigit())
                 .contentTransition(.numericText())
             Text(title)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(minHeight: 30)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func overviewMetricRow(value: Int, title: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.body)
+            Spacer(minLength: 16)
+            Text("\(value)")
+                .font(.title2.bold().monospacedDigit())
+                .contentTransition(.numericText())
+        }
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Recent Activity
 
     private var activity: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let days = recentDays
+        let total = days.reduce(0) { $0 + $1.count }
+        let upperBound = max(1, days.map(\.count).max() ?? 0)
+        return VStack(alignment: .leading, spacing: 18) {
             sectionHeader(
                 settings.t("Last 7 Days"),
-                trailing: "\(recentDays.reduce(0) { $0 + $1.count }) \(settings.t("Items"))"
+                trailing: "\(total) \(settings.t("Items"))"
             )
-
-            Chart(recentDays) { day in
+            Chart(days) { day in
                 BarMark(
-                    x: .value("Date", day.date, unit: .day),
-                    y: .value("Items", day.count)
+                    x: .value(settings.t("Date"), day.date, unit: .day),
+                    y: .value(settings.t("Items"), isVisible ? day.count : 0),
+                    width: .ratio(0.58)
                 )
-                .foregroundStyle(Color.primary.opacity(day.count == 0 ? 0.12 : 0.82))
+                .foregroundStyle(
+                    day.count == 0
+                        ? Color.secondary.opacity(0.14)
+                        : Color.accentColor
+                )
                 .cornerRadius(5)
             }
+            .chartYScale(domain: 0...upperBound)
             .chartXAxis {
                 AxisMarks(values: .stride(by: .day)) { _ in
                     AxisValueLabel(format: .dateTime.weekday(.narrow))
@@ -178,137 +241,233 @@ struct AnalyticsView: View {
                 AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) {
                     AxisValueLabel()
                     AxisTick().foregroundStyle(.clear)
-                    AxisGridLine().foregroundStyle(.secondary.opacity(0.16))
+                    AxisGridLine().foregroundStyle(.secondary.opacity(0.13))
                 }
             }
-            .frame(height: 170)
-            .padding(.horizontal, 4)
-            .padding(.top, 6)
+            .frame(height: 188)
+            .animation(chartAnimation, value: isVisible)
+            .accessibilityLabel(settings.t("Last 7 Days"))
+            .accessibilityValue("\(total) \(settings.t("Items"))")
         }
-        .analyticsSurface()
     }
 
     private var recentDays: [CleanupDay] {
         var calendar = Calendar.current
         calendar.locale = settings.language.locale
         let today = calendar.startOfDay(for: .now)
+        let eventCounts = Dictionary(grouping: stats.events) {
+            calendar.startOfDay(for: $0.date)
+        }.mapValues(\.count)
         return (0..<7).reversed().compactMap { offset in
-            guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
-            return CleanupDay(
-                date: date,
-                count: stats.events.lazy.filter { calendar.isDate($0.date, inSameDayAs: date) }.count
-            )
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else {
+                return nil
+            }
+            return CleanupDay(date: date, count: eventCounts[date, default: 0])
         }
     }
 
     // MARK: Media Breakdown
 
     private var mediaBreakdown: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        let slices = mediaSlices
+        return VStack(alignment: .leading, spacing: 18) {
             sectionHeader(settings.t("Space by Media"))
-            mediaRow(.photo, symbol: "photo")
-            mediaRow(.video, symbol: "video")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 28) {
+                    mediaChart(slices)
+                    mediaLegend(slices)
+                }
+                VStack(spacing: 22) {
+                    mediaChart(slices)
+                    mediaLegend(slices)
+                }
+            }
         }
-        .analyticsSurface()
     }
 
-    private func mediaRow(_ kind: CleanupMediaKind, symbol: String) -> some View {
-        let bytes = stats.bytes(for: kind)
-        let fraction = stats.reclaimedBytes == 0 ? 0 : Double(bytes) / Double(stats.reclaimedBytes)
-        return VStack(spacing: 9) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22)
-                Text(settings.t(kind == .photo ? "Photos" : "Videos"))
-                    .font(.subheadline)
-                Spacer()
-                Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
-                    .font(.subheadline.monospacedDigit())
+    private func mediaChart(_ slices: [MediaSlice]) -> some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.12), lineWidth: 24)
+                .padding(12)
+                .accessibilityHidden(true)
+            Chart(slices) { slice in
+                SectorMark(
+                    angle: .value(settings.t("Space Reclaimed"), slice.bytes),
+                    innerRadius: .ratio(0.7),
+                    angularInset: 2
+                )
+                .cornerRadius(4)
+                .foregroundStyle(slice.color)
+            }
+            .chartLegend(.hidden)
+            .opacity(isVisible ? 1 : 0)
+            .scaleEffect(reduceMotion || isVisible ? 1 : 0.88)
+            .animation(chartAnimation, value: isVisible)
+
+            VStack(spacing: 1) {
+                Text("\(stats.cleanedCount)")
+                    .font(.title2.bold().monospacedDigit())
+                    .contentTransition(.numericText())
+                Text(settings.t("Items"))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            GeometryReader { proxy in
-                Capsule()
-                    .fill(.primary.opacity(0.08))
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(.primary.opacity(0.72))
-                            .frame(width: proxy.size.width * CGFloat(fraction))
-                    }
-            }
-            .frame(height: 6)
         }
+        .frame(width: 158, height: 158)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(settings.t("Space by Media"))
+        .accessibilityValue(mediaAccessibilityValue)
+    }
+
+    private func mediaLegend(_ slices: [MediaSlice]) -> some View {
+        VStack(spacing: 14) {
+            ForEach(slices) { slice in
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(slice.color)
+                        .frame(width: 9, height: 9)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(settings.t(slice.kind == .photo ? "Photos" : "Videos"))
+                            .font(.subheadline.weight(.semibold))
+                        Text(ByteCountFormatter.string(
+                            fromByteCount: Int64(slice.bytes),
+                            countStyle: .file
+                        ))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 16)
+                    Text(slice.fraction, format: .percent.precision(.fractionLength(0)))
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var mediaSlices: [MediaSlice] {
+        let total = max(Double(stats.reclaimedBytes), 1)
+        return CleanupMediaKind.allCases.map { kind in
+            let bytes = Double(stats.bytes(for: kind))
+            return MediaSlice(
+                kind: kind,
+                bytes: bytes,
+                fraction: bytes / total,
+                color: kind == .photo ? .blue : .purple
+            )
+        }
+    }
+
+    private var mediaAccessibilityValue: String {
+        mediaSlices.map { slice in
+            let title = settings.t(slice.kind == .photo ? "Photos" : "Videos")
+            let bytes = ByteCountFormatter.string(
+                fromByteCount: Int64(slice.bytes),
+                countStyle: .file
+            )
+            return "\(title) \(bytes)"
+        }.joined(separator: ", ")
     }
 
     // MARK: Cleanup Results
 
     private var cleanupResults: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionHeader(settings.t("Cleaning Wins"))
-                .padding(.bottom, 8)
-            resultRow(settings.t("Screenshots Cleaned"), value: stats.count(for: .screenshot), symbol: "camera.viewfinder")
-            Divider().padding(.leading, 34)
-            resultRow(settings.t("Large Videos"), value: stats.count(for: .largeVideo), symbol: "video")
-            Divider().padding(.leading, 34)
-            resultRow(settings.t("Other Items"), value: stats.count(for: .other), symbol: "photo.on.rectangle")
+            resultRow(
+                settings.t("Screenshots Cleaned"),
+                value: stats.count(for: .screenshot),
+                symbol: "camera.viewfinder",
+                color: .orange
+            )
+            Divider().padding(.leading, 46)
+            resultRow(
+                settings.t("Large Videos"),
+                value: stats.count(for: .largeVideo),
+                symbol: "video.fill",
+                color: .red
+            )
+            Divider().padding(.leading, 46)
+            resultRow(
+                settings.t("Other Items"),
+                value: stats.count(for: .other),
+                symbol: "photo.on.rectangle",
+                color: .teal
+            )
         }
-        .analyticsSurface()
     }
 
-    private func resultRow(_ title: String, value: Int, symbol: String) -> some View {
+    private func resultRow(
+        _ title: String,
+        value: Int,
+        symbol: String,
+        color: Color
+    ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 22)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 34)
+                .accessibilityHidden(true)
             Text(title)
-                .font(.subheadline)
-            Spacer()
+                .font(.body)
+            Spacer(minLength: 16)
             Text("\(value)")
-                .font(.headline.monospacedDigit())
+                .font(.title3.bold().monospacedDigit())
                 .contentTransition(.numericText())
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Productivity
 
     private var productivity: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "clock")
-                .font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            Label(settings.t("Most Productive Time"), systemImage: "clock.fill")
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 40, height: 40)
-                .background(.primary.opacity(0.06), in: Circle())
-            VStack(alignment: .leading, spacing: 4) {
-                Text(settings.t("Most Productive Time"))
-                    .font(.subheadline.weight(.semibold))
-                Text(productiveTime)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
+            Text(productiveTime)
+                .font(.title2.bold().monospacedDigit())
+                .contentTransition(.numericText())
         }
-        .analyticsSurface()
+        .accessibilityElement(children: .combine)
     }
 
     private var productiveTime: String {
-        guard let hour = stats.mostProductiveHour else { return settings.t("No cleanup history yet") }
-        return String(format: "%02d:00 - %02d:00", hour, (hour + 1) % 24)
+        guard let hour = stats.mostProductiveHour else {
+            return settings.t("No cleanup history yet")
+        }
+        return String(format: "%02d:00 – %02d:00", hour, (hour + 1) % 24)
+    }
+
+    private var sectionDivider: some View {
+        Divider()
     }
 
     private func sectionHeader(_ title: String, trailing: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(.headline)
-            Spacer()
+                .font(.title3.bold())
+            Spacer(minLength: 8)
             if let trailing {
                 Text(trailing)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var chartAnimation: Animation? {
+        reduceMotion
+            ? .easeOut(duration: 0.18)
+            : .spring(
+                response: DesignTokens.Spring.entrance.response,
+                dampingFraction: DesignTokens.Spring.entrance.damping
+            )
     }
 }
 
@@ -318,12 +477,16 @@ private struct CleanupDay: Identifiable {
     var id: Date { date }
 }
 
+private struct MediaSlice: Identifiable {
+    let kind: CleanupMediaKind
+    let bytes: Double
+    let fraction: Double
+    let color: Color
+    var id: CleanupMediaKind { kind }
+}
+
 private extension View {
-    func analyticsSurface() -> some View {
-        padding(20)
-            .background(
-                Color(uiColor: .secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-            )
+    func sectionSpacing() -> some View {
+        padding(.vertical, 30)
     }
 }

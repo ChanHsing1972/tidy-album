@@ -123,10 +123,11 @@ struct CleanHomeView: View {
             .padding(16)
             .background(
                 Color(uiColor: .secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ApplePressButtonStyle())
         .accessibilityHint(settings.t("Review Pending Items"))
     }
 
@@ -236,7 +237,7 @@ struct CleanHomeView: View {
         .padding(16)
         .background(
             Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
         )
     }
 
