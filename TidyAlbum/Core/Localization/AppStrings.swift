@@ -70,7 +70,7 @@ enum AppStrings {
         "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "No device information": "无设备信息", "No camera information": "无镜头信息", "Shutter": "快门",
         "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑删除，下滑收藏，左右滑动浏览照片。",
         "Private & Local": "私密且仅在本地", "Everything stays on your device. No data is ever uploaded.": "所有内容都保留在你的设备上，绝不会上传。",
-        "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时查看累计清理项目与释放空间。", "Get Started": "开始使用", "Welcome to\nTidyAlbum": "欢迎使用\nTidyAlbum"
+        "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时查看累计清理项目与释放空间。", "Continue": "继续", "Welcome to\nTidyAlbum": "欢迎使用\nTidyAlbum"
     ]
 }
 

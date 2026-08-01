@@ -99,7 +99,7 @@ struct WelcomeView: View {
                 description: settings.t("See how much space you've reclaimed over time.")
             )
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 10)
     }
 
     // MARK: - Bottom Bar
@@ -121,12 +121,12 @@ struct WelcomeView: View {
 
             VStack {
                 Button(action: { dismiss() }) {
-                    Text(settings.t("Get Started"))
+                    Text(settings.t("Continue"))
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(colorScheme == .dark ? .black : .white)
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 52)
-                        .background(Color.primary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(Color.accentColor, in: Capsule())
                 }
                 .buttonStyle(ScaleButtonStyle())
             }
@@ -146,7 +146,7 @@ private struct WelcomeFeatureRow: View {
     let description: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 28) {
+        HStack(alignment: .top, spacing: 16) {
             // 左侧 SF Symbol Icon
             Image(systemName: icon)
                 .font(.system(size: 36, weight: .semibold))
