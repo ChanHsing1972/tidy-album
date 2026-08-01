@@ -35,12 +35,13 @@ struct CardView: View, Equatable {
                 .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .center) // 👈 显式指定 .center 居中
+            .offset(y: -28)
         }
     }
 
     private func fittedSize(aspectRatio: CGFloat, inside bounds: CGSize) -> CGSize {
         // 💡 将上下留出的安全 Margin 从 42 适当增加（如 64），保证长图上下永远留有优雅的空隙
-        let maximum = CGSize(width: max(bounds.width - 24, 1), height: max(bounds.height - 64, 1))
+        let maximum = CGSize(width: max(bounds.width - 24, 1), height: max(bounds.height - 24, 1))
         let containerAspect = maximum.width / maximum.height
         if aspectRatio > containerAspect {
             return CGSize(width: maximum.width, height: maximum.width / aspectRatio)
