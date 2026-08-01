@@ -141,6 +141,41 @@ enum DesignTokens {
 
     /// 应用中统一使用的字体设计风格
     static let fontDesign: Font.Design = .rounded
+
+    // MARK: - 弹簧参数 (Apple Design 规范)
+
+    /// 弹簧动画参数，遵循 Apple "Designing Fluid Interfaces" 规范。
+    /// 使用 damping ratio + response 替代 mass/stiffness/damping 三元组。
+    enum Spring {
+        /// 默认 UI 弹簧 — critically damped (damping 1.0)，无 overshoot。
+        /// 用于大多数 UI 元素：按钮、卡片、文字入场。
+        /// 对应 Apple 的 Move/Reposition 参数。
+        static let `default`: (damping: Double, response: Double) = (1.0, 0.35)
+
+        /// 动量交互弹簧 — 轻微 bounce (damping 0.8)。
+        /// 仅用于手势驱动或动量来源的过渡：图标弹入、弹性缩放。
+        /// 对应 Apple 的 Drawer/Sheet 参数。
+        static let momentum: (damping: Double, response: Double) = (0.8, 0.35)
+
+        /// 入场弹簧 — critically damped，稍慢 (response 0.45)。
+        /// 用于页面级元素首次出现，营造沉稳的开场感。
+        static let entrance: (damping: Double, response: Double) = (1.0, 0.45)
+    }
+
+    // MARK: - 排版追踪 (Apple Design 规范 — size-specific tracking)
+
+    /// 字号相关的 letter-spacing 参数。
+    /// 大字号需要负追踪（字母间距视觉上过大），小字号需要正追踪（提升可读性）。
+    enum Tracking {
+        /// 大标题负追踪 — 字号 ≥ 28pt 的 display 文字
+        static let display: CGFloat = -0.02
+        /// 中标题微负追踪 — 字号 20–27pt 的标题文字
+        static let title: CGFloat = -0.01
+        /// 正文标准追踪 — 字号 13–19pt
+        static let body: CGFloat = 0
+        /// 小字正追踪 — 字号 ≤ 12pt 的辅助文字
+        static let caption: CGFloat = 0.01
+    }
 }
 
 // MARK: - 颜色扩展 (Color Palette)
@@ -218,6 +253,7 @@ extension DesignTokens {
         static let body = roundedFont(size: FontSize.subheadline, weight: .medium)
         static let caption = roundedFont(size: FontSize.caption)
         static let displayNumber = roundedFont(size: FontSize.display, weight: .bold)
+        static let heroNumber: Font = .system(size: 52, weight: .bold, design: .rounded)
         static let controlIcon: Font = .title2
         static let statIcon: Font = .title2
         static let cardIcon: Font = .title

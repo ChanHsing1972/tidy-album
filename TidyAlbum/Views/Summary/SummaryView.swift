@@ -2,6 +2,8 @@ import SwiftUI
 
 // MARK: - Session Summary
 
+/// 按照 Apple Design 规范重新设计的会话总结页。
+/// 核心原则：数字展示作为视觉焦点、弹簧动画入场、材质层级传达深度。
 struct SummaryView: View {
     @ObservedObject var manager: PhotoManager
     @ObservedObject var settings: SettingsStore
@@ -16,16 +18,19 @@ struct SummaryView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 30) {
+                VStack(spacing: 32) {
                     completionHeader
-                        .summaryReveal(isVisible, delay: 0, reduceMotion: reduceMotion)
-                    selectedSpace
-                        .summaryReveal(isVisible, delay: 0.08, reduceMotion: reduceMotion)
-                    sessionMetrics
-                        .summaryReveal(isVisible, delay: 0.14, reduceMotion: reduceMotion)
+                        .staggeredReveal(isVisible: isVisible, delay: 0, duration: DesignTokens.Spring.entrance.response)
+
+                    spaceReclaimedCard
+                        .staggeredReveal(isVisible: isVisible, delay: 0.08, duration: DesignTokens.Spring.default.response)
+
+                    sessionMetricsRow
+                        .staggeredReveal(isVisible: isVisible, delay: 0.14, duration: DesignTokens.Spring.default.response)
+
                     if !manager.trashBin.isEmpty {
                         pendingDeletionButton
-                            .summaryReveal(isVisible, delay: 0.2, reduceMotion: reduceMotion)
+                            .staggeredReveal(isVisible: isVisible, delay: 0.20, duration: DesignTokens.Spring.default.response)
                     }
                 }
                 .frame(maxWidth: 560)
@@ -47,77 +52,90 @@ struct SummaryView: View {
         .onAppear { isVisible = true }
     }
 
+    // MARK: - Completion Header
+
     private var completionHeader: some View {
         VStack(spacing: 14) {
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 62, weight: .semibold))
+                .font(.system(size: 56, weight: .semibold))
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(.white, Color.green)
-                .shadow(color: .green.opacity(0.18), radius: 12, y: 5)
+                .shadow(color: .green.opacity(0.22), radius: 16, y: 6)
             VStack(spacing: 6) {
                 Text(settings.t("Session Complete"))
                     .font(.title2.bold())
+                    .tracking(DesignTokens.Tracking.title)
                 Text(settings.t("You reviewed every item in this session."))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .tracking(DesignTokens.Tracking.body)
             }
         }
         .frame(maxWidth: .infinity)
     }
 
-    private var selectedSpace: some View {
-        VStack(spacing: 10) {
+    // MARK: - Space Reclaimed Card
+
+    private var spaceReclaimedCard: some View {
+        VStack(spacing: 12) {
             Label(settings.t("Space Selected"), systemImage: "internaldrive")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
+                .tracking(DesignTokens.Tracking.body)
+
             Text(ByteCountFormatter.string(
                 fromByteCount: summary.estimatedReclaimBytes,
                 countStyle: .file
             ))
-                .font(.system(size: 46, weight: .bold, design: .rounded))
+                .font(DesignTokens.Typography.heroNumber)
+                .tracking(DesignTokens.Tracking.display)
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.62)
+                .minimumScaleFactor(0.55)
                 .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 26)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 30)
         .background(
-            Color.accentColor.opacity(0.1),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            Color.accentColor.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.accentColor.opacity(0.18), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.16), lineWidth: 0.5)
         }
     }
 
-    private var sessionMetrics: some View {
+    // MARK: - Session Metrics
+
+    private var sessionMetricsRow: some View {
         HStack(spacing: 0) {
-            metric(
+            metricView(
                 value: summary.reviewedCount,
                 title: settings.t("Reviewed This Session"),
                 icon: "eye"
             )
-            Divider().frame(height: 64)
-            metric(
+            Divider().frame(height: 56)
+            metricView(
                 value: summary.markedForDeletionCount,
                 title: settings.t("Marked for Deletion"),
                 icon: "trash"
             )
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func metric(value: Int, title: String, icon: String) -> some View {
-        VStack(spacing: 7) {
+    private func metricView(value: Int, title: String, icon: String) -> some View {
+        VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text("\(value)")
                 .font(.title.bold().monospacedDigit())
+                .tracking(DesignTokens.Tracking.title)
                 .contentTransition(.numericText())
             Text(title)
                 .font(.caption)
@@ -125,9 +143,12 @@ struct SummaryView: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .frame(minHeight: 32)
+                .tracking(DesignTokens.Tracking.caption)
         }
         .frame(maxWidth: .infinity)
     }
+
+    // MARK: - Pending Deletion
 
     private var pendingDeletionButton: some View {
         Button { showsTrash = true } label: {
@@ -136,13 +157,16 @@ struct SummaryView: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.red)
                     .frame(width: 40, height: 40)
-                    .background(.red.opacity(0.1), in: Circle())
+                    .background(.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
                 VStack(alignment: .leading, spacing: 3) {
                     Text(settings.t("Review Pending Items"))
                         .font(.subheadline.weight(.semibold))
+                        .tracking(DesignTokens.Tracking.body)
                     Text("\(manager.trashBin.count) \(settings.t("Items"))")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
+                        .tracking(DesignTokens.Tracking.caption)
                 }
                 Spacer(minLength: 12)
                 Image(systemName: "chevron.right")
@@ -153,36 +177,23 @@ struct SummaryView: View {
             .padding(16)
             .background(
                 Color(uiColor: .secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
             )
         }
         .buttonStyle(.plain)
     }
 
+    // MARK: - Bottom Bar
+
     private var doneBar: some View {
         Button(settings.t("Back to Library"), action: onHome)
             .font(.headline)
             .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.roundedRectangle(radius: 8))
+            .buttonBorderShape(.capsule)
             .controlSize(.large)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
-            .background(.bar)
-    }
-}
-
-private extension View {
-    func summaryReveal(
-        _ isVisible: Bool,
-        delay: Double,
-        reduceMotion: Bool
-    ) -> some View {
-        opacity(isVisible ? 1 : 0)
-            .offset(y: isVisible || reduceMotion ? 0 : 14)
-            .animation(
-                reduceMotion ? nil : .smooth(duration: 0.48).delay(delay),
-                value: isVisible
-            )
+            .background(.ultraThinMaterial)
     }
 }

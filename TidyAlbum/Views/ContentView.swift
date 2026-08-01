@@ -11,6 +11,8 @@ struct ContentView: View {
     @State private var showsWelcome = false
 
     init() {
+        // 🧪 调试专用：取消下面这行的注释，每次启动都强行清除“已看过”标记
+        UserDefaults.standard.removeObject(forKey: "app.hasLaunchedBefore")
         let settings = SettingsStore()
         let analytics = AnalyticsStore()
         _settings = StateObject(wrappedValue: settings)

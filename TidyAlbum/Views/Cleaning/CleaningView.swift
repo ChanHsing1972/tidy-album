@@ -52,6 +52,8 @@ struct CleaningView: View {
                             settings: settings,
                             hapticsEnabled: settings.hapticsEnabled,
                             hasNextGroup: manager.hasNextGroup,
+                            groupNumber: manager.sessionGroupNumber,
+                            groupCount: manager.sessionGroupCount,
                             isFavorite: manager.isFavorite,
                             onDelete: manager.markForDeletion,
                             onToggleFavorite: manager.markFavorite,
@@ -261,6 +263,8 @@ private struct CleaningCardStage: View {
     let settings: SettingsStore
     let hapticsEnabled: Bool
     let hasNextGroup: Bool
+    let groupNumber: Int
+    let groupCount: Int
     let isFavorite: (PHAsset) -> Bool
     let onDelete: (PHAsset, Int) -> Void
     let onToggleFavorite: (PHAsset, Int) -> Void
@@ -322,6 +326,8 @@ private struct CleaningCardStage: View {
                             GroupCompletionPage(
                                 settings: settings,
                                 hasNextGroup: hasNextGroup,
+                                groupNumber: groupNumber,
+                                groupCount: groupCount,
                                 onNextGroup: onNextGroup,
                                 onEnd: onEnd
                             )
@@ -782,62 +788,104 @@ private struct AnimatedProgressBar: View {
 private struct GroupCompletionPage: View {
     @ObservedObject var settings: SettingsStore
     let hasNextGroup: Bool
+    let groupNumber: Int
+    let groupCount: Int
     let onNextGroup: () -> Void
     let onEnd: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
     var body: some View {
-        VStack(spacing: 28) {
-            VStack(spacing: 16) {
-                Image(systemName: hasNextGroup ? "checkmark.circle.fill" : "flag.checkered.circle.fill")
-                    .font(.system(size: 68, weight: .semibold))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, Color.green)
-                    .shadow(color: .black.opacity(0.16), radius: 12, y: 5)
-                VStack(spacing: 8) {
-                    Text(settings.t(hasNextGroup ? "Group Finished" : "All Done"))
+        VStack(spacing: 0) {
+            VStack(spacing: 28) {
+                groupProgressBadge
+                    .staggeredReveal(isVisible: isVisible, delay: 0, duration: DesignTokens.Spring.momentum.response)
+
+                VStack(spacing: 10) {
+                    Text(settings.t(hasNextGroup ? "Group Complete" : "All Done"))
                         .font(.title.bold())
+                        .tracking(DesignTokens.Tracking.title)
                     Text(settings.t(
                         hasNextGroup
-                            ? "Continue with the next group?"
+                            ? "All items in this group reviewed"
                             : "You reviewed every item in this session."
                     ))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+                        .tracking(DesignTokens.Tracking.body)
                 }
+                .staggeredReveal(isVisible: isVisible, delay: 0.08, duration: DesignTokens.Spring.default.response)
+
+                actionButtons
+                    .staggeredReveal(isVisible: isVisible, delay: 0.16, duration: DesignTokens.Spring.default.response)
             }
-            VStack(spacing: 14) {
-                if hasNextGroup {
-                    Button(action: onNextGroup) {
-                        Label(settings.t("Next Group"), systemImage: "arrow.right")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Button(settings.t("Finish Session"), action: onEnd)
-                        .buttonStyle(.plain)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button(action: onEnd) {
-                        Label(settings.t("Finish"), systemImage: "checkmark")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
+            .padding(32)
         }
-        .buttonBorderShape(.roundedRectangle(radius: 8))
-        .padding(32)
-        .frame(maxWidth: 360, minHeight: 360)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .frame(maxWidth: 360, minHeight: 380)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(.white.opacity(0.16), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.white.opacity(0.12), lineWidth: 0.5)
         }
         .padding(.horizontal, 24)
+        .onAppear { isVisible = true }
+    }
+
+    // MARK: - Progress Badge
+
+    private var groupProgressBadge: some View {
+        VStack(spacing: 14) {
+            if groupCount > 1 {
+                Text(String(
+                    format: settings.t("Group X of Y"),
+                    groupNumber, groupCount
+                ))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .tracking(DesignTokens.Tracking.caption)
+            }
+
+            Image(systemName: hasNextGroup ? "flag.checkered.2.crossed" : "checkmark.seal.fill")
+                .font(.system(size: 56, weight: .semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, Color.green)
+                .shadow(color: .green.opacity(0.2), radius: 14, y: 6)
+        }
+    }
+
+    // MARK: - Action Buttons
+
+    private var actionButtons: some View {
+        VStack(spacing: 14) {
+            if hasNextGroup {
+                Button(action: onNextGroup) {
+                    Label(settings.t("Clean Next Group"), systemImage: "arrow.right")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 12))
+
+                Button(settings.t("Finish Session"), action: onEnd)
+                    .buttonStyle(.plain)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            } else {
+                Button(action: onEnd) {
+                    Label(settings.t("Finish"), systemImage: "checkmark")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle(radius: 12))
+            }
+        }
     }
 }
 

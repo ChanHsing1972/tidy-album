@@ -66,6 +66,7 @@ enum ThemeMode: String, CaseIterable, Identifiable {
 }
 
 enum CleaningGroupSize: Int, CaseIterable, Identifiable {
+    case develop = 1
     case compact = 25
     case standard = 50
     case large = 100

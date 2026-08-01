@@ -10,13 +10,23 @@ struct AssetDetailsView: View {
     let asset: PHAsset
     @ObservedObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @State private var metadata: AssetMetadata?
     @State private var captionText: String = ""
     @State private var placeName: String?
 
-    // 💡 统一定义卡片的半透明背景色 (非毛玻璃)
+    // 💡 锁死卡片半透明背景，不受 Sheet 材质影响
     private var cardBackgroundColor: Color {
         Color.primary.opacity(0.06)
+    }
+
+    // 💡 锁死灰色文字色，彻底解决 Sheet 展开/缩小时 secondary/tertiary 文字闪烁变色的问题
+    private var secondaryTextColor: Color {
+        Color.primary.opacity(0.6)
+    }
+
+    private var tertiaryTextColor: Color {
+        Color.primary.opacity(0.4)
     }
 
     var body: some View {
@@ -35,10 +45,10 @@ struct AssetDetailsView: View {
                     mediaPreview
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 16)
                 .padding(.bottom, 28)
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -47,10 +57,10 @@ struct AssetDetailsView: View {
         }
     }
 
-    // MARK: - 1. Main Info Card (纯半透明背景)
+    // MARK: - 1. Main Info Card
 
     private var mainInfoCard: some View {
-        VStack(alignment: .leading, spacing: 0)  {
+        VStack(alignment: .leading, spacing: 0) {
             // Section 1: 日期、时间与文件名
             dateAndFileHeader
                 .padding(14)
@@ -76,7 +86,6 @@ struct AssetDetailsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // 💡 纯半透明背景与细描边
         .background(cardBackgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
@@ -97,7 +106,7 @@ struct AssetDetailsView: View {
                     Text(fileName)
                         .font(.caption)
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(secondaryTextColor)
             }
             Spacer()
         }
@@ -120,8 +129,9 @@ struct AssetDetailsView: View {
                 if asset.mediaSubtypes.contains(.photoLive) {
                     Image(systemName: "livephoto")
                         .font(.caption2)
+                        .foregroundStyle(secondaryTextColor)
                         .padding(4)
-                        .background(.primary.opacity(0.08))
+                        .background(Color(uiColor: .tertiarySystemFill))
                         .clipShape(Circle())
                 }
             }
@@ -134,13 +144,13 @@ struct AssetDetailsView: View {
             HStack {
                 Text(lensDescription)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(secondaryTextColor)
                 Spacer()
             }
 
             Text(specSummaryText)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(secondaryTextColor)
         }
     }
 
@@ -154,7 +164,7 @@ struct AssetDetailsView: View {
             exifCell(title: settings.t("Shutter"), value: shutterSpeedText)
         }
         .padding(.vertical, 10)
-        .background(.primary.opacity(0.04))
+        .background(Color(uiColor: .secondarySystemFill))
     }
 
     private func exifCell(title: String, value: String) -> some View {
@@ -164,12 +174,12 @@ struct AssetDetailsView: View {
                 .foregroundStyle(.primary)
             Text(title)
                 .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(tertiaryTextColor)
         }
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - 2. Location Card (纯半透明背景)
+    // MARK: - 2. Location Card
 
     private func locationCard(_ location: CLLocation) -> some View {
         VStack(spacing: 0) {
@@ -204,7 +214,6 @@ struct AssetDetailsView: View {
             }
             .padding(14)
         }
-        // 💡 纯半透明背景与细描边
         .background(cardBackgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
@@ -216,7 +225,7 @@ struct AssetDetailsView: View {
         }
     }
 
-    // MARK: - 3. 4:3 Media Preview (纯半透明背景)
+    // MARK: - 3. 4:3 Media Preview
 
     private var mediaPreview: some View {
         AssetMediaView(
@@ -228,7 +237,6 @@ struct AssetDetailsView: View {
         )
         .aspectRatio(4 / 3, contentMode: .fit)
         .frame(maxWidth: .infinity)
-        // 💡 纯半透明背景与细描边
         .background(cardBackgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
@@ -242,10 +250,10 @@ struct AssetDetailsView: View {
     private func badgeView(text: String) -> some View {
         Text(text)
             .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(secondaryTextColor)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(.primary.opacity(0.08))
+            .background(Color(uiColor: .tertiarySystemFill))
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 
