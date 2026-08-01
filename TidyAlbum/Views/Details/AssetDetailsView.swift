@@ -14,29 +14,30 @@ struct AssetDetailsView: View {
     @State private var captionText: String = ""
     @State private var placeName: String?
 
+    // 💡 统一定义卡片的半透明背景色 (非毛玻璃)
+    private var cardBackgroundColor: Color {
+        Color.primary.opacity(0.06)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 12) {
-                    // 1. 顶部 4:3 预览
-                    mediaPreview
-                    
-                    // 2. 添加说明（Caption）
-//                    captionField
-                    
-                    // 3. 核心参数大卡片 (包含时间、文件名、相机、参数)
+                    // 1. 核心参数大卡片 (包含时间、文件名、相机、参数)
                     mainInfoCard
                     
-                    // 4. 地理位置卡片
+                    // 2. 地理位置卡片
                     if let location = asset.location {
                         locationCard(location)
                     }
+
+                    // 3. 底部 4:3 预览图 (位于最下方)
+                    mediaPreview
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 28)
             }
-            .navigationTitle(settings.t("Media Details"))
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium, .large])
@@ -46,23 +47,7 @@ struct AssetDetailsView: View {
         }
     }
 
-    // MARK: - 1. 4:3 Media Preview
-
-    private var mediaPreview: some View {
-        AssetMediaView(
-            asset: asset,
-            contentMode: .fit,
-            showsVideoBadge: true,
-            allowsPlayback: true,
-            isActive: true
-        )
-        .aspectRatio(4 / 3, contentMode: .fit)
-        .frame(maxWidth: .infinity)
-        .background(Color.black.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    // MARK: - 3. Main Info Card (Apple Style)
+    // MARK: - 1. Main Info Card (纯半透明背景)
 
     private var mainInfoCard: some View {
         VStack(alignment: .leading, spacing: 0)  {
@@ -71,12 +56,14 @@ struct AssetDetailsView: View {
                 .padding(14)
             
             Divider()
+                .background(.primary.opacity(0.08))
             
             // Section 2: 设备信息 & Badge
             if let deviceModel = metadata?.deviceModel ?? defaultDeviceModel {
                 deviceSection(model: deviceModel)
                     .padding(14)
                 Divider()
+                    .background(.primary.opacity(0.08))
             }
 
             // Section 3: 镜头细节与分辨率/文件大小
@@ -89,8 +76,13 @@ struct AssetDetailsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        // 💡 纯半透明背景与细描边
+        .background(cardBackgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.primary.opacity(0.08), lineWidth: 0.5)
+        }
     }
 
     // Header: 时间与文件名
@@ -129,7 +121,7 @@ struct AssetDetailsView: View {
                     Image(systemName: "livephoto")
                         .font(.caption2)
                         .padding(4)
-                        .background(Color(uiColor: .tertiarySystemFill))
+                        .background(.primary.opacity(0.08))
                         .clipShape(Circle())
                 }
             }
@@ -162,7 +154,7 @@ struct AssetDetailsView: View {
             exifCell(title: settings.t("Shutter"), value: shutterSpeedText)
         }
         .padding(.vertical, 10)
-        .background(Color(uiColor: .tertiarySystemGroupedBackground).opacity(0.5))
+        .background(.primary.opacity(0.04))
     }
 
     private func exifCell(title: String, value: String) -> some View {
@@ -177,7 +169,7 @@ struct AssetDetailsView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - 4. Location Card
+    // MARK: - 2. Location Card (纯半透明背景)
 
     private func locationCard(_ location: CLLocation) -> some View {
         VStack(spacing: 0) {
@@ -212,10 +204,36 @@ struct AssetDetailsView: View {
             }
             .padding(14)
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        // 💡 纯半透明背景与细描边
+        .background(cardBackgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.primary.opacity(0.08), lineWidth: 0.5)
+        }
         .task {
             placeName = await reverseGeocode(location)
+        }
+    }
+
+    // MARK: - 3. 4:3 Media Preview (纯半透明背景)
+
+    private var mediaPreview: some View {
+        AssetMediaView(
+            asset: asset,
+            contentMode: .fit,
+            showsVideoBadge: true,
+            allowsPlayback: true,
+            isActive: true
+        )
+        .aspectRatio(4 / 3, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        // 💡 纯半透明背景与细描边
+        .background(cardBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.primary.opacity(0.08), lineWidth: 0.5)
         }
     }
 
@@ -227,7 +245,7 @@ struct AssetDetailsView: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Color(uiColor: .tertiarySystemFill))
+            .background(.primary.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 

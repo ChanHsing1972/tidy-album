@@ -51,6 +51,7 @@ struct CleanHomeView: View {
                         .contentShape(Rectangle())
                 }
                 .badge(manager.trashBin.count)
+                .id("trash-badge-\(manager.trashBin.count)")
                 .buttonStyle(.plain)
                 .accessibilityLabel(settings.t("Trash"))
             }
