@@ -76,7 +76,6 @@ struct SettingsView: View {
                 } header: {
                     Text(settings.t("Cleaning Preferences"))
                 } footer: {
-                    Text(settings.t("Only one group is loaded at a time to keep browsing smooth."))
                     if settings.sortOrder == .random, settings.excludesViewedInRandomMode {
                         Text(settings.t("Hide items already reviewed in previous random sessions."))
                     }

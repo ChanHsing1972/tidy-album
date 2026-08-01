@@ -34,13 +34,14 @@ struct AnalyticsView: View {
                                 systemImage: "arrow.counterclockwise"
                             )
                         }
+                        .tint(.red) // 💡 1. 显式把内部按钮重新强制指定为红色，拦截外层的 .tint(.primary)
                         .disabled(stats.reviewedCount == 0 && stats.cleanedCount == 0)
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.body.weight(.semibold))
                             .contentShape(Rectangle())
                     }
-                    .tint(.primary) // 💡 关键：强制将外层 Menu 的 Accent 色重置为系统主色（黑/白）
+                    .tint(.primary) // 💡 2. 确保外面的三个点是黑/白色
                     .accessibilityLabel(settings.t("More"))
                 }
             }

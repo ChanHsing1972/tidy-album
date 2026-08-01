@@ -8,10 +8,10 @@ struct TrashView: View {
     @ObservedObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
 
-    @State private var showsDeleteConfirmation = false
     @State private var detailsSelection: TrashAssetSelection?
     @State private var restoringAssetIDs: Set<String> = []
 
+    // 💡 保持 Grid 布局稳定
     private let columns = [GridItem(.adaptive(minimum: 108), spacing: 3)]
 
     var body: some View {
@@ -20,7 +20,7 @@ struct TrashView: View {
                 if manager.trashBin.isEmpty { emptyState } else { queueContent }
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationBarTitleDisplayMode(.inline) // 保持居中布局
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
             .overlay {
                 if manager.isDeleting {
@@ -34,18 +34,6 @@ struct TrashView: View {
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings)
                 .id(selection.id)
-        }
-        .confirmationDialog(
-            settings.t("Delete from Photos?"),
-            isPresented: $showsDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button(settings.t("Delete All"), role: .destructive) {
-                Task { await manager.emptyTrash() }
-            }
-            Button(settings.t("Cancel"), role: .cancel) {}
-        } message: {
-            Text(settings.t("These items will move to Recently Deleted in Photos."))
         }
         .alert(
             settings.t("Delete Failed"),
@@ -72,7 +60,6 @@ struct TrashView: View {
 
     private var queueContent: some View {
         ScrollView {
-            // 移除了原先的 queueSummary 区域，让照片直接顶上
             LazyVGrid(columns: columns, spacing: 3) {
                 ForEach(manager.trashBin, id: \.localIdentifier) { asset in
                     TrashQueueItem(
@@ -83,26 +70,41 @@ struct TrashView: View {
                         onDetails: { detailsSelection = TrashAssetSelection(asset: asset) },
                         onRestore: { restore(asset) }
                     )
+                    // 💡 1. 给每个 Cell 指定唯一 ID，防止 Layout 复用错位
+                    .id(asset.localIdentifier)
+                    // 💡 2. 使用 transition 确保照片被移除时缩小淡出，后面的照片自然滑过来
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
                     .equatable()
                 }
             }
             .padding(.horizontal, 4)
             .padding(.top, 8)
+            // 💡 3. 核心：只对 trashBin 数组变化开启轻量弹簧动画，保证前移平滑流畅！
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: manager.trashBin)
         }
     }
+
+    // MARK: 高性能撤回逻辑
 
     private func restore(_ asset: PHAsset) {
         let identifier = asset.localIdentifier
         guard !restoringAssetIDs.contains(identifier) else { return }
-        _ = withAnimation(.easeOut(duration: 0.14)) {
-            restoringAssetIDs.insert(identifier)
+
+        // 标记正在撤回
+        restoringAssetIDs.insert(identifier)
+
+        // 💡 离开当前帧，触发微量的缩放淡出，随后将数据从 TrashBin 中移除，激发 LazyVGrid 补位动画
+        withAnimation(.easeOut(duration: 0.15)) {
+            _ = restoringAssetIDs.insert(identifier)
         }
+
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(140))
+            // 稍作微小延迟让淡出动画完成
+            try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            var transaction = Transaction()
-            transaction.animation = nil
-            withTransaction(transaction) {
+            
+            // 💡 在 spring 动画上下文中从数据源中剔除，引发后面的 Cell 自动前移动画
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 manager.restoreFromTrash(asset)
                 restoringAssetIDs.remove(identifier)
             }
@@ -112,19 +114,16 @@ struct TrashView: View {
     // MARK: Actions & Title Navigation Bar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        // 左边关闭按钮
         ToolbarItem(placement: .topBarLeading) {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
                     .font(.body.weight(.semibold))
-                    
                     .contentShape(Rectangle())
             }
             .foregroundStyle(.primary)
             .accessibilityLabel(settings.t("Close"))
         }
         
-        // 中间自定义标题（“待删除” + 数量与体积）
         ToolbarItem(placement: .principal) {
             VStack(spacing: 2) {
                 Text(settings.t("Trash"))
@@ -140,13 +139,10 @@ struct TrashView: View {
             }
         }
 
-        // 右边三个点菜单
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
-                    var transaction = Transaction()
-                    transaction.animation = nil
-                    withTransaction(transaction) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                         manager.restoreAllFromTrash()
                     }
                 } label: {
@@ -156,13 +152,12 @@ struct TrashView: View {
                 .disabled(manager.trashBin.isEmpty || manager.isDeleting)
 
                 Button(role: .destructive) {
-                    showsDeleteConfirmation = true
+                    Task { await manager.emptyTrash() }
                 } label: {
                     Label {
                         Text(settings.t("Delete All"))
                     } icon: {
                         Image(systemName: "trash")
-                            .foregroundStyle(.red)
                     }
                 }
                 .tint(.red)
@@ -171,7 +166,6 @@ struct TrashView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.body.weight(.semibold))
-                    
                     .contentShape(Rectangle())
             }
             .foregroundStyle(.primary)
@@ -179,6 +173,8 @@ struct TrashView: View {
         }
     }
 }
+
+// MARK: - Item View
 
 private struct TrashQueueItem: View, Equatable {
     let asset: PHAsset
@@ -211,7 +207,6 @@ private struct TrashQueueItem: View, Equatable {
                     .font(.title2)
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(.white, .black.opacity(0.55))
-                    
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -219,7 +214,7 @@ private struct TrashQueueItem: View, Equatable {
             .accessibilityLabel(restoreLabel)
         }
         .opacity(isRestoring ? 0 : 1)
-        .scaleEffect(isRestoring ? 0.96 : 1)
+        .scaleEffect(isRestoring ? 0.8 : 1)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }
