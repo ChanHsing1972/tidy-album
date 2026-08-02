@@ -259,11 +259,9 @@ private struct AssetSheetSelection: Identifiable {
 }
 
 private struct AnimatedProgressBar: View {
-    @ObserveInjection var inject
     let value: Double
 
     var body: some View {
-        let _ = inject
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 Capsule().fill(.primary.opacity(0.15))
@@ -278,7 +276,6 @@ private struct AnimatedProgressBar: View {
 }
 
 private struct CleaningAssetInfoIsland: View {
-    @ObserveInjection var inject
     let asset: PHAsset?
     @ObservedObject var settings: SettingsStore
     let isFavorite: Bool
@@ -306,7 +303,6 @@ private struct CleaningAssetInfoIsland: View {
     }
 
     var body: some View {
-        let _ = inject
         HStack(spacing: 6) {
             if let asset {
                 VStack(spacing: 2) {

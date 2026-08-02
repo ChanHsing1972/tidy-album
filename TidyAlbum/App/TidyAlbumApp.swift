@@ -5,6 +5,10 @@ import Inject
 @main
 struct TidyAlbumApp: App {
     @ObserveInjection var inject
+
+    init() {
+        InjectConfiguration.animation = .none
+    }
     var body: some Scene {
         WindowGroup {
             ContentView()

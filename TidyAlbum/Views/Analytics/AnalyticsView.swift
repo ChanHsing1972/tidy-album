@@ -51,19 +51,19 @@ struct AnalyticsView: View {
                 Button(role: .destructive) {
                     showsResetConfirmation = true
                 } label: {
-                    Label(
-                        settings.t("Reset Statistics"),
-                        systemImage: "arrow.counterclockwise"
-                    )
+                    Label{
+                        Text(settings.t("Reset Statistics"))
+                    } icon: {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
                 }
-                .foregroundStyle(.red)
                 .tint(.red)
                 .disabled(stats.reviewedCount == 0 && stats.cleanedCount == 0)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
             }
+            .foregroundStyle(.primary)
             .accessibilityLabel(settings.t("More"))
         }
     }
@@ -88,11 +88,11 @@ struct AnalyticsView: View {
                         duration: DesignTokens.Spring.entrance.response
                     )
                 sectionDivider
-                activity
+                cleanupResults
                     .sectionSpacing()
                     .staggeredReveal(
                         isVisible: isVisible,
-                        delay: 0.06,
+                        delay: 0,
                         duration: DesignTokens.Spring.default.response
                     )
                 sectionDivider
@@ -100,17 +100,18 @@ struct AnalyticsView: View {
                     .sectionSpacing()
                     .staggeredReveal(
                         isVisible: isVisible,
-                        delay: 0.11,
+                        delay: 0,
                         duration: DesignTokens.Spring.default.response
                     )
                 sectionDivider
-                cleanupResults
+                activity
                     .sectionSpacing()
                     .staggeredReveal(
                         isVisible: isVisible,
-                        delay: 0.16,
+                        delay: 0,
                         duration: DesignTokens.Spring.default.response
                     )
+
 //                sectionDivider
 //                productivity
 //                    .padding(.top, 30)

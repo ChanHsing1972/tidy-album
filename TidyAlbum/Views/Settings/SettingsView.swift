@@ -57,16 +57,16 @@ struct SettingsView: View {
                         }
                     }
                     Picker(selection: $settings.assetInfoDisplayMode) {
-                        Text(settings.t("InfoLocation")).tag(AssetInfoDisplayMode.location)
-                        Text(settings.t("InfoFileSize")).tag(AssetInfoDisplayMode.fileSize)
-                        Text(settings.t("InfoCaptured")).tag(AssetInfoDisplayMode.fullDate)
-                        Text(settings.t("InfoResolution")).tag(AssetInfoDisplayMode.resolution)
+                        Text(settings.t("Location")).tag(AssetInfoDisplayMode.location)
+                        Text(settings.t("File Size")).tag(AssetInfoDisplayMode.fileSize)
+                        Text(settings.t("Captured")).tag(AssetInfoDisplayMode.fullDate)
+                        Text(settings.t("Dimensions")).tag(AssetInfoDisplayMode.resolution)
                     } label: {
                         Label(settings.t("Info Display"), systemImage: "info.circle")
                     }
                     Picker(selection: $settings.progressDisplayMode) {
                         Text(settings.t("Numbers Only")).tag(ProgressDisplayMode.textOnly)
-                        Text(settings.t("Progress Bar Only")).tag(ProgressDisplayMode.barOnly)
+                        Text(settings.t("Bar Only")).tag(ProgressDisplayMode.barOnly)
                         Text(settings.t("Show Both")).tag(ProgressDisplayMode.both)
                     } label: {
                         Label(settings.t("Progress Display"), systemImage: "chart.bar")

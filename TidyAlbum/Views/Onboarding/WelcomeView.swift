@@ -143,14 +143,12 @@ struct WelcomeView: View {
 // MARK: - Feature Row Component
 
 private struct WelcomeFeatureRow: View {
-    @ObserveInjection var inject
     let icon: String
     let color: Color
     let title: String
     let description: String
 
     var body: some View {
-        let _ = inject
         HStack(alignment: .top, spacing: 16) {
             // 左侧 SF Symbol Icon (已增大到 46x46)
             Image(systemName: icon)

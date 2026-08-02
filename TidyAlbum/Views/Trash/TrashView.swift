@@ -172,7 +172,6 @@ struct TrashView: View {
 // MARK: - Item View
 
 private struct TrashQueueItem: View, Equatable {
-    @ObserveInjection var inject
     let asset: PHAsset
     let isRestoring: Bool
     let detailsLabel: String
@@ -188,7 +187,6 @@ private struct TrashQueueItem: View, Equatable {
     }
 
     var body: some View {
-        let _ = inject
         ZStack(alignment: .bottomTrailing) {
             Button(action: onDetails) {
                 AssetMediaView(asset: asset, contentMode: .fill)
