@@ -31,7 +31,7 @@ enum AppStrings {
         "Duration": "时长", "Unknown File": "未知文件", "Unknown Date": "未知日期", "Share": "分享",
         "Space Reclaimed": "累计释放空间", "Items Cleaned": "累计清理", "Items Reviewed": "累计浏览",
         "Cleanup Overview": "清理概览", "Space by Media": "释放空间分布", "Videos": "视频", "Date": "日期",
-        "Cleaning Wins": "清理战果", "Screenshots Cleaned": "已清理截屏", "Large Videos": "大型视频",
+        "Cleaning Wins": "清理详情", "Screenshots Cleaned": "已清理截屏", "Large Videos": "大型视频",
         "Other Items": "其他项目", "Most Productive Time": "最高效时段", "No cleanup history yet": "暂无清理记录",
         "Last 7 Days": "近七日", "Total": "总计",
         "More": "更多", "Reset Statistics": "重置统计", "Reset Cleanup History?": "重置清理记录？",

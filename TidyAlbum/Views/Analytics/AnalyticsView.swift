@@ -139,8 +139,8 @@ struct AnalyticsView: View {
     // MARK: Overview
 
     private var overview: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
                 Label(settings.t("Space Reclaimed"), systemImage: "internaldrive.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -151,7 +151,6 @@ struct AnalyticsView: View {
                     .font(.system(
                         size: min(heroNumberSize, 76),
                         weight: .bold,
-                        design: .rounded
                     ))
                     .monospacedDigit()
                     .lineLimit(1)
@@ -173,11 +172,11 @@ struct AnalyticsView: View {
                 overviewMetricRow(value: manager.trashBin.count, title: settings.t("Pending deletion"))
             }
         } else {
-            HStack(alignment: .top, spacing: 0) {
+            HStack(alignment: .top, spacing: 5) {
                 overviewMetric(value: stats.cleanedCount, title: settings.t("Items Cleaned"))
-                Divider().frame(height: 58)
+                Divider().frame(height: 50)
                 overviewMetric(value: stats.reviewedCount, title: settings.t("Items Reviewed"))
-                Divider().frame(height: 58)
+                Divider().frame(height: 50)
                 overviewMetric(value: manager.trashBin.count, title: settings.t("Pending deletion"))
             }
         }
@@ -217,7 +216,7 @@ struct AnalyticsView: View {
         let days = recentDays
         let total = days.reduce(0) { $0 + $1.count }
         let upperBound = max(1, days.map(\.count).max() ?? 0)
-        return VStack(alignment: .leading, spacing: 18) {
+        return VStack(alignment: .leading, spacing: 30) {
             sectionHeader(
                 settings.t("Last 7 Days"),
                 trailing: "\(total) \(settings.t("Items"))"
@@ -276,7 +275,7 @@ struct AnalyticsView: View {
 
     private var mediaBreakdown: some View {
         let slices = mediaSlices
-        return VStack(alignment: .leading, spacing: 18) {
+        return VStack(alignment: .leading, spacing: 20) {
             sectionHeader(settings.t("Space by Media"))
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 28) {
@@ -381,8 +380,9 @@ struct AnalyticsView: View {
     // MARK: Cleanup Results
 
     private var cleanupResults: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             sectionHeader(settings.t("Cleaning Wins"))
+                .padding(.bottom, 12)
             resultRow(
                 settings.t("Screenshots Cleaned"),
                 value: stats.count(for: .screenshot),
@@ -423,7 +423,7 @@ struct AnalyticsView: View {
                 .font(.title3.bold().monospacedDigit())
                 .contentTransition(.numericText())
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
     }
 
@@ -455,7 +455,7 @@ struct AnalyticsView: View {
     private func sectionHeader(_ title: String, trailing: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(.title3.bold())
+                .font(.title2.bold())
             Spacer(minLength: 8)
             if let trailing {
                 Text(trailing)
