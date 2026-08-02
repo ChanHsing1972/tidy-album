@@ -16,6 +16,7 @@ final class AssetImagePipeline {
 
     private init() {
         cache.countLimit = 80
+        cache.totalCostLimit = 192 * 1_024 * 1_024
     }
 
     func cachedImage(
@@ -56,7 +57,8 @@ final class AssetImagePipeline {
                 let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
                 let isFinal = !isDegraded
                 if isFinal {
-                    self?.cache.setObject(image, forKey: key)
+                    let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+                    self?.cache.setObject(image, forKey: key, cost: cost)
                 }
                 completion(image, isFinal)
             }

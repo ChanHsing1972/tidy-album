@@ -1,16 +1,20 @@
 import CoreImage
+import Metal
 import UIKit
 
 actor CleaningBackdropRenderer {
     static let shared = CleaningBackdropRenderer()
 
-    private let context = CIContext(options: [
-        .cacheIntermediates: false,
-        .useSoftwareRenderer: true
-    ])
+    private let context: CIContext
     private let cache = NSCache<NSString, CGImage>()
 
     private init() {
+        let options: [CIContextOption: Any] = [.cacheIntermediates: false]
+        if let device = MTLCreateSystemDefaultDevice() {
+            context = CIContext(mtlDevice: device, options: options)
+        } else {
+            context = CIContext(options: options)
+        }
         cache.totalCostLimit = 32 * 1_024 * 1_024
     }
 

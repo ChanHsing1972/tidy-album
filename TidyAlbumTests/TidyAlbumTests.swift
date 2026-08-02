@@ -5,6 +5,7 @@
 //  Created by 尘心 on 2025/12/23.
 //
 
+import CoreGraphics
 import Foundation
 import Testing
 @testable import TidyAlbum
@@ -111,5 +112,118 @@ struct TidyAlbumTests {
         #expect(CleaningMotionGeometry.deletionProgress(verticalTranslation: -300, revealDistance: 200) == 1)
         #expect(CleaningMotionGeometry.incomingOffset(entryEdge: 1, pageWidth: 400, progress: 0.25) == 300)
         #expect(CleaningMotionGeometry.incomingOffset(entryEdge: -1, pageWidth: 400, progress: 1) == 0)
+    }
+
+    @Test @MainActor
+    func idlePagesKeepTheirExactPageSpacing() {
+        let current = CleaningMotionGeometry.pageMotion(
+            pageIndex: 2,
+            currentPageIndex: 2,
+            pageWidth: 411,
+            axis: .undetermined,
+            translation: .zero,
+            isDeleting: false,
+            deletionTarget: nil,
+            deletionProgress: 0,
+            actionThreshold: 92
+        )
+        let previous = CleaningMotionGeometry.pageMotion(
+            pageIndex: 1,
+            currentPageIndex: 2,
+            pageWidth: 411,
+            axis: .undetermined,
+            translation: .zero,
+            isDeleting: false,
+            deletionTarget: nil,
+            deletionProgress: 0,
+            actionThreshold: 92
+        )
+        let next = CleaningMotionGeometry.pageMotion(
+            pageIndex: 3,
+            currentPageIndex: 2,
+            pageWidth: 411,
+            axis: .undetermined,
+            translation: .zero,
+            isDeleting: false,
+            deletionTarget: nil,
+            deletionProgress: 0,
+            actionThreshold: 92
+        )
+
+        #expect(current.translation == .zero)
+        #expect(previous.translation.x == -411)
+        #expect(next.translation.x == 411)
+    }
+
+    @Test @MainActor
+    func horizontalDragMovesEveryPageByTheFingerTranslation() {
+        let translations = (1...3).map { pageIndex in
+            CleaningMotionGeometry.pageMotion(
+                pageIndex: pageIndex,
+                currentPageIndex: 2,
+                pageWidth: 411,
+                axis: .horizontal,
+                translation: CGPoint(x: -73, y: 120),
+                isDeleting: false,
+                deletionTarget: nil,
+                deletionProgress: 0,
+                actionThreshold: 92
+            ).translation
+        }
+
+        #expect(translations.map(\.x) == [-484, -73, 338])
+        #expect(translations.allSatisfy { $0.y == 0 })
+    }
+
+    @Test @MainActor
+    func upwardDragResistsCurrentPageAndPullsOnlyDeletionTarget() {
+        let target = CleaningDeletionGeometry(pageIndex: 2, entryEdge: 1)
+        let current = CleaningMotionGeometry.pageMotion(
+            pageIndex: 1,
+            currentPageIndex: 1,
+            pageWidth: 411,
+            axis: .vertical,
+            translation: CGPoint(x: 80, y: -142),
+            isDeleting: false,
+            deletionTarget: target,
+            deletionProgress: 0.25,
+            actionThreshold: 92
+        )
+        let incoming = CleaningMotionGeometry.pageMotion(
+            pageIndex: 2,
+            currentPageIndex: 1,
+            pageWidth: 411,
+            axis: .vertical,
+            translation: CGPoint(x: 80, y: -142),
+            isDeleting: false,
+            deletionTarget: target,
+            deletionProgress: 0.25,
+            actionThreshold: 92
+        )
+
+        #expect(current.translation.x == 0)
+        #expect(current.translation.y == -121)
+        #expect(current.scale == 0.982)
+        #expect(incoming.translation.x == 308.25)
+        #expect(incoming.translation.y == 0)
+        #expect(incoming.zPosition == 9)
+    }
+
+    @Test @MainActor
+    func committedDeletionUsesUnresistedOffscreenEndpoint() {
+        let motion = CleaningMotionGeometry.pageMotion(
+            pageIndex: 1,
+            currentPageIndex: 1,
+            pageWidth: 411,
+            axis: .vertical,
+            translation: CGPoint(x: 0, y: -760),
+            isDeleting: true,
+            deletionTarget: CleaningDeletionGeometry(pageIndex: 2, entryEdge: 1),
+            deletionProgress: 1,
+            actionThreshold: 92
+        )
+
+        #expect(motion.translation.y == -760)
+        #expect(motion.scale == 0.982)
     }
 }
