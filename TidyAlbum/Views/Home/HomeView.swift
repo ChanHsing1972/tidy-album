@@ -55,7 +55,7 @@ struct CleanHomeView: View {
                 }
                 .badge(manager.trashBin.count)
                 .id("trash-badge-\(manager.trashBin.count)")
-                .buttonStyle(.plain)
+                .tint(.primary)
                 .accessibilityLabel(settings.t("Trash"))
             }
         }
@@ -67,7 +67,7 @@ struct CleanHomeView: View {
                 if manager.isLimited { limitedAccessBanner }
                 if !manager.trashBin.isEmpty { pendingDeletionRow }
                 collectionSection
-                privacyFooter
+//                privacyFooter
             }
             .frame(maxWidth: 760)
             .padding(.horizontal, 20)
@@ -79,21 +79,6 @@ struct CleanHomeView: View {
             manager.fetchPhotos()
             manager.refreshLibraryOverview()
         }
-    }
-
-
-    private func overviewMetric(value: String, title: String) -> some View {
-        VStack(spacing: 5) {
-            Text(value)
-                .font(.title3.bold().monospacedDigit())
-                .contentTransition(.numericText())
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private var libraryCount: Int {
@@ -108,7 +93,7 @@ struct CleanHomeView: View {
                 Image(systemName: "trash")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 440, height: 440)
+                    .frame(width: 44, height: 44)
                     .background(.primary.opacity(0.06), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
                     Text(settings.t("Pending deletion"))
@@ -141,11 +126,11 @@ struct CleanHomeView: View {
     // MARK: Collections
 
     private var collectionSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(settings.t("Collections"))
-                        .font(.title3.bold())
+                        .font(.title2.bold())
                 }
                 Spacer(minLength: 8)
                 Button(action: beginCleaning) {

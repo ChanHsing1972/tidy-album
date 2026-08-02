@@ -70,6 +70,7 @@ struct CleaningView: View {
             .toolbarBackground(.hidden, for: .bottomBar)
             .toolbar { toolbar }
         }
+        .tint(.primary)
         .onAppear { selectInitialAsset() }
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings).id(selection.id)
@@ -117,10 +118,7 @@ struct CleaningView: View {
         ToolbarItem(placement: .topBarLeading) {
             Button(action: exitSession) {
                 Image(systemName: "xmark")
-                    
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .accessibilityLabel(settings.t("Close"))
         }
         ToolbarItem(placement: .principal) { sessionProgress }
@@ -130,7 +128,6 @@ struct CleaningView: View {
 
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .badge(manager.trashBin.count)
             .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
@@ -143,7 +140,6 @@ struct CleaningView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .disabled(!manager.canUndo || isUndoing)
             .opacity(manager.canUndo ? 1 : 0.35)
             .accessibilityLabel(settings.t("Undo"))
@@ -158,7 +154,7 @@ struct CleaningView: View {
                 .frame(minHeight: 44)
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            
             .disabled(currentAsset == nil)
             .opacity(currentAsset == nil ? 0 : 1)
             .accessibilityLabel(settings.t("Details"))
@@ -171,7 +167,7 @@ struct CleaningView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            
             .disabled(currentAsset == nil || isPreparingShare)
             .opacity(currentAsset == nil ? 0.35 : 1)
             .accessibilityLabel(settings.t("Share"))
@@ -828,13 +824,6 @@ private struct GroupCompletionPage: View {
                     .fill(.white.opacity(0.1))
                 Circle()
                     .stroke(.white.opacity(0.18), lineWidth: 6)
-//                Circle()
-//                    .trim(from: 0, to: animatedProgress)
-//                    .stroke(
-//                        .white,
-//                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
-//                    )
-//                    .rotationEffect(.degrees(-90))
                 Image(systemName: "checkmark")
                     .font(.system(size: min(statusSize, 142) * 0.34, weight: .bold))
                     .foregroundStyle(.white)
@@ -872,18 +861,17 @@ private struct GroupCompletionPage: View {
     }
 
     private var actions: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             if hasNextGroup {
                 Button(action: onNextGroup) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) { // 稍微调小间距更紧凑
                         Text(settings.t("Clean Next Group"))
-                        Spacer(minLength: 8)
                         Image(systemName: "arrow.right")
                             .accessibilityHidden(true)
                     }
                     .font(.headline)
                     .padding(.horizontal, 20)
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .frame(minHeight: 52) // 删除了 maxWidth: .infinity
                     .foregroundStyle(.black)
                     .background(.white, in: Capsule())
                     .contentShape(Capsule())
@@ -897,15 +885,14 @@ private struct GroupCompletionPage: View {
                     .buttonStyle(ApplePressButtonStyle())
             } else {
                 Button(action: onEnd) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         Text(settings.t("Finish"))
-                        Spacer(minLength: 8)
                         Image(systemName: "checkmark")
                             .accessibilityHidden(true)
                     }
                     .font(.headline)
                     .padding(.horizontal, 20)
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .frame(minHeight: 52) // 同步删除了 maxWidth: .infinity
                     .foregroundStyle(.black)
                     .background(.white, in: Capsule())
                     .contentShape(Capsule())

@@ -28,6 +28,7 @@ struct TrashView: View {
             .overlay {
                 if manager.isDeleting {
                     ProgressView()
+                        .tint(.primary)
                         .controlSize(.large)
                         .padding(24)
                         .appleSurface(cornerRadius: 16)
@@ -194,7 +195,7 @@ private struct TrashQueueItem: View, Equatable {
                     .aspectRatio(1, contentMode: .fill)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            
             .disabled(isRestoring)
             .accessibilityLabel(detailsLabel)
 
@@ -205,7 +206,7 @@ private struct TrashQueueItem: View, Equatable {
                     .foregroundStyle(.white, .black.opacity(0.55))
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            
             .disabled(isRestoring)
             .accessibilityLabel(restoreLabel)
         }

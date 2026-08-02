@@ -58,7 +58,7 @@ enum AppStrings {
         "Session Complete": "清理完成", "You've cleaned up your album!": "你已整理过相册！",
         "Deleted": "已删除", "In Trash": "待删除", "Back to Home": "返回首页",
         "Cleanup Summary": "清理总结", "Space Selected": "已选空间", "Reviewed This Session": "本次浏览",
-        "Marked for Deletion": "标记待删除", "Back to Library": "返回图库", "This Session": "本次清理",
+        "Marked for Deletion": "标记待删除", "Back to Library": "关闭", "This Session": "本次清理",
         "Ready for review in Pending Deletion": "所选项目已进入待删除，可在删除前再次确认", "Next Step": "下一步",
         "No items added to Pending Deletion": "本次没有新增待删除项目",
         "Items ready in Pending Deletion": "%d 项已进入待删除，可在删除前再次确认",
@@ -72,9 +72,9 @@ enum AppStrings {
         "Group X of Y": "第 %d 组 / 共 %d 组",
         "Theme": "主题", "Follow System": "跟随系统", "Light": "浅色", "Dark": "深色",
         "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "No device information": "无设备信息", "No camera information": "无镜头信息", "Shutter": "快门",
-        "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑删除，下滑收藏，左右滑动浏览照片。",
-        "Private & Local": "私密且仅在本地", "Everything stays on your device. No data is ever uploaded.": "所有内容都保留在你的设备上，绝不会上传。",
-        "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时查看累计清理项目与释放空间。", "Continue": "继续", "Welcome to\nTidyAlbum": "欢迎使用\nTidyAlbum"
+        "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑快速删除，下滑添加收藏，左右滑动即可轻松浏览所有照片。",
+        "Private & Local": "绝对私密", "Everything stays on your device. No data is ever uploaded.": "所有数据仅保留在本地设备，绝不会上传至任何服务器。",
+        "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时直观查看累计清理数，以及成功释放的存储空间。", "Continue": "继续", "Welcome to\nTidyAlbum": "欢迎使用\nTidyAlbum"
     ]
 }
 

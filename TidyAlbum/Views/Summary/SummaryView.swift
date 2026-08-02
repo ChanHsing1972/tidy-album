@@ -10,7 +10,7 @@ struct SummaryView: View {
     var onHome: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .title) private var successSymbolSize = 62.0
+    @ScaledMetric(relativeTo: .title) private var successSymbolSize = 80
     @ScaledMetric(relativeTo: .largeTitle) private var resultNumberSize = 52.0
     @State private var showsTrash = false
     @State private var isVisible = false
@@ -32,14 +32,14 @@ struct SummaryView: View {
                         delay: 0.07,
                         duration: DesignTokens.Spring.entrance.response
                     )
-                if !manager.trashBin.isEmpty {
-                    pendingDeletionAction
-                        .staggeredReveal(
-                            isVisible: isVisible,
-                            delay: 0.13,
-                            duration: DesignTokens.Spring.default.response
-                        )
-                }
+//                if !manager.trashBin.isEmpty {
+//                    pendingDeletionAction
+//                        .staggeredReveal(
+//                            isVisible: isVisible,
+//                            delay: 0.13,
+//                            duration: DesignTokens.Spring.default.response
+//                        )
+//                }
             }
             .frame(maxWidth: 520)
             .padding(.horizontal, 24)
@@ -69,7 +69,7 @@ struct SummaryView: View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(
-                    size: min(successSymbolSize, 82),
+                    size: min(successSymbolSize, 100),
                     weight: .semibold
                 ))
                 .symbolRenderingMode(.hierarchical)
@@ -79,13 +79,9 @@ struct SummaryView: View {
                 .accessibilityHidden(true)
             Text(settings.t("Session Complete"))
                 .font(.title2.bold())
-            Text(settings.t("You reviewed every item in this session."))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
+        .padding(.top, 30)
         .accessibilityElement(children: .combine)
     }
 
@@ -104,11 +100,6 @@ struct SummaryView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.58)
                 .contentTransition(.numericText())
-            Text(primaryResultCaption)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)

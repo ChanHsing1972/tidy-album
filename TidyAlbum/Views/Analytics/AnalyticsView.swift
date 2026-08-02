@@ -38,6 +38,7 @@ struct AnalyticsView: View {
             titleVisibility: .visible
         ) {
             Button(settings.t("Reset Statistics"), role: .destructive) { store.reset() }
+                .tint(.red)
             Button(settings.t("Cancel"), role: .cancel) {}
         } message: {
             Text(settings.t("This removes cleanup statistics from this device."))
@@ -55,13 +56,14 @@ struct AnalyticsView: View {
                         systemImage: "arrow.counterclockwise"
                     )
                 }
+                .foregroundStyle(.red)
+                .tint(.red)
                 .disabled(stats.reviewedCount == 0 && stats.cleanedCount == 0)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.body.weight(.semibold))
-                    .contentShape(Rectangle())
+                    .foregroundStyle(.white)
             }
-            .tint(.primary)
             .accessibilityLabel(settings.t("More"))
         }
     }
@@ -109,14 +111,14 @@ struct AnalyticsView: View {
                         delay: 0.16,
                         duration: DesignTokens.Spring.default.response
                     )
-                sectionDivider
-                productivity
-                    .padding(.top, 30)
-                    .staggeredReveal(
-                        isVisible: isVisible,
-                        delay: 0.21,
-                        duration: DesignTokens.Spring.default.response
-                    )
+//                sectionDivider
+//                productivity
+//                    .padding(.top, 30)
+//                    .staggeredReveal(
+//                        isVisible: isVisible,
+//                        delay: 0.21,
+//                        duration: DesignTokens.Spring.default.response
+//                    )
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.horizontal, 24)
@@ -384,21 +386,19 @@ struct AnalyticsView: View {
                 settings.t("Screenshots Cleaned"),
                 value: stats.count(for: .screenshot),
                 symbol: "camera.viewfinder",
-                color: .orange
+                color: .primary
             )
-            Divider().padding(.leading, 46)
             resultRow(
                 settings.t("Large Videos"),
                 value: stats.count(for: .largeVideo),
                 symbol: "video.fill",
-                color: .red
+                color: .primary
             )
-            Divider().padding(.leading, 46)
             resultRow(
                 settings.t("Other Items"),
                 value: stats.count(for: .other),
                 symbol: "photo.on.rectangle",
-                color: .teal
+                color: .primary
             )
         }
     }

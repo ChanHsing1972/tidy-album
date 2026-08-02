@@ -16,8 +16,8 @@ struct WelcomeView: View {
 
     // MARK: 阶梯式入场延迟 (Staggered Reveal)
     private let delayHeader     = 0.0
-    private let delayFeatures   = 0.12
-    private let delayButton     = 0.24
+    private let delayFeatures   = 0.24
+    private let delayButton     = 0.48
 
     var body: some View {
         let _ = inject
@@ -28,7 +28,7 @@ struct WelcomeView: View {
 
             // MARK: - Main Scroll Content
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
+                VStack(spacing: 10) {
                     // 1. 顶部 Header (标题 + 核心标语)
                     welcomeHeader
                         .staggeredReveal(isVisible: isVisible, delay: delayHeader, reduceMotion: reduceMotion)
@@ -39,7 +39,7 @@ struct WelcomeView: View {
                 }
                 .frame(maxWidth: 460)
                 .padding(.horizontal, 32)
-                .padding(.top, 64)
+                .padding(.top, 56)
                 .padding(.bottom, 120) // 为底部固定按钮留出空间
                 .frame(maxWidth: .infinity)
             }
@@ -102,7 +102,7 @@ struct WelcomeView: View {
                 description: settings.t("See how much space you've reclaimed over time.")
             )
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10)
     }
 
     // MARK: - Bottom Bar
@@ -152,11 +152,11 @@ private struct WelcomeFeatureRow: View {
     var body: some View {
         let _ = inject
         HStack(alignment: .top, spacing: 16) {
-            // 左侧 SF Symbol Icon
+            // 左侧 SF Symbol Icon (已增大到 46x46)
             Image(systemName: icon)
-                .font(.system(size: 36, weight: .semibold))
+                .font(.system(size: 46, weight: .semibold))
                 .foregroundStyle(color)
-                .frame(width: 40, height: 40)
+                .frame(width: 46 , height: 46)
             
             // 右侧文本 Stack
             VStack(alignment: .leading, spacing: 4) {
@@ -170,7 +170,7 @@ private struct WelcomeFeatureRow: View {
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
