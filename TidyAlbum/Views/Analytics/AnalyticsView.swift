@@ -396,11 +396,49 @@ struct AnalyticsView: View {
                 color: .primary
             )
             resultRow(
-                settings.t("Other Items"),
-                value: stats.count(for: .other),
+                settings.t("Live Photos Cleaned"),
+                value: stats.count(for: .livePhoto),
+                symbol: "livephoto",
+                color: .primary
+            )
+            resultRow(
+                settings.t("Panoramas Cleaned"),
+                value: stats.count(for: .panorama),
+                symbol: "pano",
+                color: .primary
+            )
+            resultRow(
+                settings.t("Portraits Cleaned"),
+                value: stats.count(for: .portrait),
+                symbol: "person.crop.rectangle",
+                color: .primary
+            )
+            resultRow(
+                settings.t("RAW Photos Cleaned"),
+                value: stats.count(for: .rawPhoto),
+                symbol: "camera.aperture",
+                color: .primary
+            )
+            resultRow(
+                settings.t("Videos Cleaned"),
+                value: stats.count(for: .video),
+                symbol: "video",
+                color: .primary
+            )
+            resultRow(
+                settings.t("Photos Cleaned"),
+                value: stats.count(for: .photo),
                 symbol: "photo.on.rectangle",
                 color: .primary
             )
+            if stats.count(for: .other) > 0 {
+                resultRow(
+                    settings.t("Other Items"),
+                    value: stats.count(for: .other),
+                    symbol: "questionmark.square",
+                    color: .primary
+                )
+            }
         }
     }
 

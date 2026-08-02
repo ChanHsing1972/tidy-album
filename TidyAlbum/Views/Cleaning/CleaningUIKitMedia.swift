@@ -70,22 +70,31 @@ final class CleaningCardPageView: UIView {
             cornerRadius: 16
         ).cgPath
         actionView.bounds = CGRect(x: 0, y: 0, width: 86, height: 86)
-        actionView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        actionView.center = CGPoint(x: shadowView.frame.midX, y: shadowView.frame.midY)
     }
 
-    func configure(asset: PHAsset, isFavorite: Bool, host: UIViewController) {
+    func configure(
+        asset: PHAsset,
+        isFavorite: Bool,
+        autoPlayLivePhotos: Bool,
+        host: UIViewController
+    ) {
         let assetChanged = self.asset?.localIdentifier != asset.localIdentifier
         self.asset = asset
         self.isFavorite = isFavorite
         accessibilityLabel = asset.creationDate.map {
             DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short)
         }
-        mediaView.configure(asset: asset)
+        mediaView.configure(asset: asset, autoPlayLivePhotos: autoPlayLivePhotos)
         if assetChanged { setNeedsLayout() }
     }
 
     func setActive(_ active: Bool, host: UIViewController) {
         mediaView.setActive(active, host: host)
+    }
+
+    func setAutoPlayLivePhotos(_ enabled: Bool, host: UIViewController) {
+        mediaView.setAutoPlayLivePhotos(enabled, host: host)
     }
 
     func setFavorite(_ isFavorite: Bool) {
@@ -170,6 +179,7 @@ private final class CleaningActionIndicatorView: UIView {
 private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
     private let imageView = UIImageView()
     private let videoBadge = CleaningVideoBadgeView()
+    private let livePhotoBadge = CleaningLivePhotoBadgeView()
     private var asset: PHAsset?
     private var assetIdentifier = ""
     private var imageRequestID: PHImageRequestID?
@@ -179,9 +189,11 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
     private var videoRequestID: PHImageRequestID?
     private var playerController: AVPlayerViewController?
     private var player: AVPlayer?
+    private var playerReadinessObservation: NSKeyValueObservation?
     private var livePhotoRequestID: PHImageRequestID?
     private var livePhotoView: PHLivePhotoView?
     private var hasFinalLivePhoto = false
+    private var autoPlayLivePhotos = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -191,6 +203,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         imageView.clipsToBounds = true
         addSubview(imageView)
         addSubview(videoBadge)
+        addSubview(livePhotoBadge)
     }
 
     required init?(coder: NSCoder) {
@@ -204,11 +217,17 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         livePhotoView?.frame = bounds
         videoBadge.bounds = CGRect(x: 0, y: 0, width: 48, height: 48)
         videoBadge.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        livePhotoBadge.frame = CGRect(x: 10, y: 10, width: 66, height: 26)
         requestPosterIfNeeded()
     }
 
-    func configure(asset: PHAsset) {
-        guard assetIdentifier != asset.localIdentifier else { return }
+    func configure(asset: PHAsset, autoPlayLivePhotos: Bool) {
+        let optionChanged = self.autoPlayLivePhotos != autoPlayLivePhotos
+        self.autoPlayLivePhotos = autoPlayLivePhotos
+        guard assetIdentifier != asset.localIdentifier else {
+            if optionChanged { updateLivePhotoPlayback() }
+            return
+        }
         tearDownAsset()
         self.asset = asset
         assetIdentifier = asset.localIdentifier
@@ -216,6 +235,13 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         requestedImageKey = ""
         updateBadge()
         setNeedsLayout()
+    }
+
+    func setAutoPlayLivePhotos(_ enabled: Bool, host: UIViewController) {
+        hostController = host
+        guard autoPlayLivePhotos != enabled else { return }
+        autoPlayLivePhotos = enabled
+        updateLivePhotoPlayback()
     }
 
     func setActive(_ active: Bool, host: UIViewController) {
@@ -305,12 +331,30 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
             AVPlaybackSpeed(rate: 2, localizedName: "2x")
         ]
         controller.view.backgroundColor = .clear
+        controller.view.alpha = 0
         hostController.addChild(controller)
         insertSubview(controller.view, aboveSubview: imageView)
         controller.view.frame = bounds
         controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         controller.didMove(toParent: hostController)
         playerController = controller
+        playerReadinessObservation = controller.observe(
+            \.isReadyForDisplay,
+            options: [.initial, .new]
+        ) { [weak self, weak controller] _, change in
+            guard change.newValue == true, let controller else { return }
+            DispatchQueue.main.async {
+                guard let self,
+                      self.isActive,
+                      self.playerController === controller else { return }
+                UIView.animate(
+                    withDuration: 0.14,
+                    delay: 0,
+                    options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut],
+                    animations: { controller.view.alpha = 1 }
+                )
+            }
+        }
 
         let requestedIdentifier = asset.localIdentifier
         let options = PHVideoRequestOptions()
@@ -337,7 +381,9 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
 
     private func startLivePhoto(_ asset: PHAsset) {
         guard livePhotoView == nil else {
-            if hasFinalLivePhoto { livePhotoView?.startPlayback(with: .full) }
+            if hasFinalLivePhoto, autoPlayLivePhotos {
+                livePhotoView?.startPlayback(with: .full)
+            }
             return
         }
         let liveView = PHLivePhotoView(frame: bounds)
@@ -365,7 +411,9 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
                 self.livePhotoView?.livePhoto = livePhoto
                 let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
                 self.hasFinalLivePhoto = !degraded
-                if !degraded { self.livePhotoView?.startPlayback(with: .full) }
+                if !degraded, self.autoPlayLivePhotos {
+                    self.livePhotoView?.startPlayback(with: .full)
+                }
             }
         }
     }
@@ -374,7 +422,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         _ livePhotoView: PHLivePhotoView,
         didEndPlaybackWith playbackStyle: PHLivePhotoViewPlaybackStyle
     ) {
-        guard isActive else { return }
+        guard isActive, autoPlayLivePhotos else { return }
         DispatchQueue.main.async { [weak self, weak livePhotoView] in
             guard self?.isActive == true else { return }
             livePhotoView?.startPlayback(with: .full)
@@ -383,6 +431,20 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
 
     private func updateBadge() {
         videoBadge.isHidden = asset?.mediaType != .video || isActive
+        livePhotoBadge.isHidden = asset?.mediaSubtypes.contains(.photoLive) != true
+    }
+
+    private func updateLivePhotoPlayback() {
+        guard isActive, asset?.mediaSubtypes.contains(.photoLive) == true else { return }
+        if autoPlayLivePhotos {
+            if hasFinalLivePhoto {
+                livePhotoView?.startPlayback(with: .full)
+            } else if let asset {
+                startLivePhoto(asset)
+            }
+        } else {
+            livePhotoView?.stopPlayback()
+        }
     }
 
     private func tearDownAsset() {
@@ -395,6 +457,8 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
     private func tearDownPlayback() {
         if let videoRequestID { PHImageManager.default().cancelImageRequest(videoRequestID) }
         videoRequestID = nil
+        playerReadinessObservation?.invalidate()
+        playerReadinessObservation = nil
         player?.pause()
         playerController?.player = nil
         player = nil
@@ -411,6 +475,45 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         livePhotoView?.removeFromSuperview()
         livePhotoView = nil
         hasFinalLivePhoto = false
+    }
+}
+
+@MainActor
+private final class CleaningLivePhotoBadgeView: UIVisualEffectView {
+    private let iconView = UIImageView()
+    private let label = UILabel()
+
+    init() {
+        super.init(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        clipsToBounds = true
+        layer.cornerCurve = .continuous
+        layer.borderWidth = 0.5
+        layer.borderColor = UIColor.white.withAlphaComponent(0.2).cgColor
+        isUserInteractionEnabled = false
+
+        iconView.image = UIImage(
+            systemName: "livephoto",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        )
+        iconView.tintColor = .white
+        iconView.contentMode = .scaleAspectFit
+        contentView.addSubview(iconView)
+
+        label.text = "LIVE"
+        label.font = .systemFont(ofSize: 10, weight: .bold)
+        label.textColor = .white
+        contentView.addSubview(label)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = 6
+        iconView.frame = CGRect(x: 7, y: 6, width: 14, height: 14)
+        label.frame = CGRect(x: 25, y: 0, width: bounds.width - 30, height: bounds.height)
     }
 }
 

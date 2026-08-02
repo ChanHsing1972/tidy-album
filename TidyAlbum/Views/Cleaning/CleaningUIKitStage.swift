@@ -41,9 +41,9 @@ struct CleaningUIKitCardStage: UIViewControllerRepresentable {
             assets: assets,
             selectedAssetID: selectedAssetID,
             hapticsEnabled: hapticsEnabled,
+            autoPlayLivePhotos: settings.autoPlayLivePhotos,
             favoriteIdentifiers: Set(assets.lazy.filter(isFavorite).map(\.localIdentifier)),
             completionContent: completion,
-            animatesSelectionChanges: context.transaction.animation != nil,
             onSelection: { selectedAssetID = $0 },
             onDelete: onDelete,
             onToggleFavorite: onToggleFavorite,
@@ -90,8 +90,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var thresholdCrossed = false
     private var backdropTargetID: String?
     private var animator: UIViewPropertyAnimator?
-    private var deletionCommitWorkItem: DispatchWorkItem?
     private var hapticsEnabled = true
+    private var autoPlayLivePhotos = true
     private let deletionHaptic = UIImpactFeedbackGenerator(style: .rigid)
     private let favoriteHaptic = UIImpactFeedbackGenerator(style: .soft)
     private let boundaryHaptic = UIImpactFeedbackGenerator(style: .soft)
@@ -135,9 +135,9 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         assets: [PHAsset],
         selectedAssetID: String,
         hapticsEnabled: Bool,
+        autoPlayLivePhotos: Bool,
         favoriteIdentifiers: Set<String>,
         completionContent: CleaningCompletionContent,
-        animatesSelectionChanges: Bool,
         onSelection: @escaping (String) -> Void,
         onDelete: @escaping (PHAsset, Int) -> Void,
         onToggleFavorite: @escaping (PHAsset, Int) -> Void,
@@ -150,6 +150,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         self.onNextGroup = onNextGroup
         self.onEnd = onEnd
         self.hapticsEnabled = hapticsEnabled
+        self.autoPlayLivePhotos = autoPlayLivePhotos
         self.favoriteIdentifiers = favoriteIdentifiers
         self.completionContent = completionContent
 
@@ -161,8 +162,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             uniqueKeysWithValues: assets.enumerated().map { ($0.element.localIdentifier, $0.offset) }
         )
         if selectionChanged {
-            if animatesSelectionChanges,
-               !isTransitioning,
+            if !isTransitioning,
                !previousSelectionID.isEmpty,
                let sourceIndex = pageIndex(for: previousSelectionID),
                let destinationIndex = pageIndex(for: selectedAssetID),
@@ -176,8 +176,6 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                 return
             }
             animator?.stopAnimation(true)
-            deletionCommitWorkItem?.cancel()
-            deletionCommitWorkItem = nil
             isTransitioning = false
             resetMotion()
             self.selectedAssetID = selectedAssetID
@@ -194,14 +192,13 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     func tearDown() {
         animator?.stopAnimation(true)
         animator = nil
-        deletionCommitWorkItem?.cancel()
-        deletionCommitWorkItem = nil
         session.cancelTransition()
         cardViews.values.forEach { $0.tearDown() }
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        !isTransitioning && currentPageIndex != nil
+        finishTransitionForNewGestureIfNeeded()
+        return !isTransitioning && currentPageIndex != nil
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
@@ -286,8 +283,15 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         let destinationID = pageID(at: destination)
         ensureBackdropTransition(targetID: destinationID)
         isTransitioning = true
+        let remainingDistance = abs(-CGFloat(direction) * width - translation.x)
+        let duration = settlingDuration(
+            distance: remainingDistance,
+            velocity: velocity,
+            baselineVelocity: 1_400,
+            range: 0.14...0.24
+        )
         translation = CGPoint(x: -CGFloat(direction) * width, y: 0)
-        animate(duration: 0.3, dampingRatio: 0.9, animations: {
+        animate(duration: duration, dampingRatio: 0.9, animations: {
             self.applyTransforms()
             self.session.setTransitionProgress(1)
         }) { [weak self] in
@@ -305,13 +309,13 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             return
         }
         if resolved < 0 {
-            commitDeletion()
+            commitDeletion(releaseVelocity: velocity)
         } else {
             commitFavorite()
         }
     }
 
-    private func commitDeletion() {
+    private func commitDeletion(releaseVelocity: CGFloat) {
         guard let currentIndex,
               assets.indices.contains(currentIndex),
               let geometry = CleaningMotionGeometry.deletionTarget(
@@ -327,28 +331,25 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         isTransitioning = true
         translation.y = resistedVerticalOffset(translation.y)
         isDeleting = true
-        deletionProgress = CleaningMotionGeometry.deletionProgress(
-            verticalTranslation: translation.y,
-            revealDistance: actionThreshold * 2.4
-        )
         applyTransformsWithoutAnimation()
-        translation.y = -max(view.bounds.height * 1.18, 760)
+        let destinationY = -max(view.bounds.height * 1.18, 760)
+        let duration = settlingDuration(
+            distance: abs(destinationY - translation.y),
+            velocity: releaseVelocity,
+            baselineVelocity: 2_800,
+            range: 0.12...0.24
+        )
+        translation.y = destinationY
         deletionProgress = 1
-        animate(duration: 0.28, curve: .easeInOut, animations: {
+        animate(duration: duration, curve: .easeOut, animations: {
             self.applyTransforms()
             self.session.setTransitionProgress(1)
         }) { [weak self] in
-            guard let self else { return }
-            let item = DispatchWorkItem { [weak self] in
-                self?.finishDeletion(asset: asset, originalIndex: currentIndex, destinationID: destinationID)
-            }
-            self.deletionCommitWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04, execute: item)
+            self?.finishDeletion(asset: asset, originalIndex: currentIndex, destinationID: destinationID)
         }
     }
 
     private func finishDeletion(asset: PHAsset, originalIndex: Int, destinationID: String) {
-        deletionCommitWorkItem = nil
         assets.removeAll { $0.localIdentifier == asset.localIdentifier }
         rebuildAssetIndex()
         selectedAssetID = destinationID
@@ -385,7 +386,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         isTransitioning = true
         axis = .horizontal
         translation = CGPoint(x: -CGFloat(direction) * pageWidth, y: 0)
-        animate(duration: 0.34, dampingRatio: 0.88, animations: {
+        animate(duration: 0.24, dampingRatio: 0.88, animations: {
             self.applyTransforms()
             self.session.setTransitionProgress(1)
         }) { [weak self] in
@@ -409,7 +410,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             return
         }
         isTransitioning = true
-        animate(duration: 0.34, dampingRatio: 0.82, animations: {
+        animate(duration: 0.2, dampingRatio: 0.82, animations: {
             self.applyTransforms()
             self.session.setTransitionProgress(0)
         }) { [weak self] in
@@ -462,6 +463,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             page.configure(
                 asset: asset,
                 isFavorite: favoriteIdentifiers.contains(identifier),
+                autoPlayLivePhotos: autoPlayLivePhotos,
                 host: self
             )
         }
@@ -494,6 +496,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         for (identifier, page) in cardViews {
             let active = identifier == selectedAssetID
             page.setFavorite(favoriteIdentifiers.contains(identifier))
+            page.setAutoPlayLivePhotos(autoPlayLivePhotos, host: self)
             page.setActive(active, host: self)
             page.accessibilityIdentifier = active
                 ? "tidyalbum.cleaning-card.current"
@@ -637,6 +640,12 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         animator.startAnimation()
     }
 
+    private func finishTransitionForNewGestureIfNeeded() {
+        guard isTransitioning, let animator, animator.state == .active else { return }
+        animator.stopAnimation(false)
+        animator.finishAnimation(at: .end)
+    }
+
     private var currentPageIndex: Int? {
         if selectedAssetID == CleaningPageID.groupCompletion { return assets.count }
         return currentIndex
@@ -671,6 +680,17 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
 
     private func resistedVerticalOffset(_ value: CGFloat) -> CGFloat {
         CleaningMotionGeometry.resistedVerticalOffset(value, threshold: actionThreshold)
+    }
+
+    private func settlingDuration(
+        distance: CGFloat,
+        velocity: CGFloat,
+        baselineVelocity: CGFloat,
+        range: ClosedRange<TimeInterval>
+    ) -> TimeInterval {
+        let resolvedVelocity = max(abs(velocity), baselineVelocity)
+        let duration = TimeInterval(distance / resolvedVelocity)
+        return min(max(duration, range.lowerBound), range.upperBound)
     }
 
     private func prepareHaptics() {

@@ -91,6 +91,7 @@ final class SettingsStore: ObservableObject {
     private enum Key {
         static let language = "settings.language"
         static let haptics = "settings.haptics"
+        static let autoPlayLivePhotos = "settings.autoPlayLivePhotos"
         static let deletionMode = "settings.deletionMode"
         static let sortOrder = "settings.sortOrder"
         static let excludesViewedInRandomMode = "settings.excludesViewedInRandomMode"
@@ -106,6 +107,10 @@ final class SettingsStore: ObservableObject {
 
     @Published var hapticsEnabled: Bool {
         didSet { defaults.set(hapticsEnabled, forKey: Key.haptics) }
+    }
+
+    @Published var autoPlayLivePhotos: Bool {
+        didSet { defaults.set(autoPlayLivePhotos, forKey: Key.autoPlayLivePhotos) }
     }
 
     @Published var deletionMode: DeletionMode {
@@ -142,6 +147,7 @@ final class SettingsStore: ObservableObject {
         self.defaults = defaults
         language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .simplifiedChinese
         hapticsEnabled = defaults.object(forKey: Key.haptics) as? Bool ?? true
+        autoPlayLivePhotos = defaults.object(forKey: Key.autoPlayLivePhotos) as? Bool ?? true
         deletionMode = DeletionMode(rawValue: defaults.string(forKey: Key.deletionMode) ?? "") ?? .appTrash
         sortOrder = PhotoSortOrder(rawValue: defaults.string(forKey: Key.sortOrder) ?? "") ?? .newestFirst
         excludesViewedInRandomMode = defaults.object(forKey: Key.excludesViewedInRandomMode) as? Bool ?? false

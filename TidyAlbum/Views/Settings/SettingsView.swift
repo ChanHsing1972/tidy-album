@@ -25,6 +25,9 @@ struct SettingsView: View {
                     Toggle(isOn: $settings.hapticsEnabled) {
                         Label(settings.t("Haptic Feedback"), systemImage: "iphone.radiowaves.left.and.right")
                     }
+                    Toggle(isOn: $settings.autoPlayLivePhotos) {
+                        Label(settings.t("Auto-Play Live Photos"), systemImage: "livephoto")
+                    }
                     Picker(selection: $settings.themeMode) {
                         Text(settings.t("Follow System")).tag(ThemeMode.system)
                         Text(settings.t("Light")).tag(ThemeMode.light)

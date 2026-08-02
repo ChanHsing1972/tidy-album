@@ -6,7 +6,9 @@
 //
 
 import CoreGraphics
+import CoreLocation
 import Foundation
+import Photos
 import Testing
 @testable import TidyAlbum
 
@@ -20,6 +22,7 @@ struct TidyAlbumTests {
         let settings = SettingsStore(defaults: defaults)
         settings.language = .english
         settings.hapticsEnabled = false
+        settings.autoPlayLivePhotos = false
         settings.deletionMode = .systemTrash
         settings.sortOrder = .random
         settings.excludesViewedInRandomMode = true
@@ -29,6 +32,7 @@ struct TidyAlbumTests {
         let restored = SettingsStore(defaults: defaults)
         #expect(restored.language == .english)
         #expect(restored.hapticsEnabled == false)
+        #expect(restored.autoPlayLivePhotos == false)
         #expect(restored.deletionMode == .systemTrash)
         #expect(restored.sortOrder == .random)
         #expect(restored.excludesViewedInRandomMode)
@@ -64,6 +68,28 @@ struct TidyAlbumTests {
         let restored = AnalyticsStore(defaults: defaults)
         #expect(analytics.statistics.reviewedCount == 0)
         #expect(restored.statistics.reviewedCount == 0)
+    }
+
+    @Test
+    func cleanupCategoriesClassifyEverySupportedMediaType() {
+        #expect(CleanupCategory.classify(mediaType: .image, mediaSubtypes: .photoScreenshot, bytes: 1, resourceFilenames: ["image.png"]) == .screenshot)
+        #expect(CleanupCategory.classify(mediaType: .image, mediaSubtypes: .photoLive, bytes: 1, resourceFilenames: ["image.heic"]) == .livePhoto)
+        #expect(CleanupCategory.classify(mediaType: .image, mediaSubtypes: .photoPanorama, bytes: 1, resourceFilenames: ["image.jpg"]) == .panorama)
+        #expect(CleanupCategory.classify(mediaType: .image, mediaSubtypes: .photoDepthEffect, bytes: 1, resourceFilenames: ["image.heic"]) == .portrait)
+        #expect(CleanupCategory.classify(mediaType: .image, mediaSubtypes: [], bytes: 1, resourceFilenames: ["image.DNG"]) == .rawPhoto)
+        #expect(CleanupCategory.classify(mediaType: .image, mediaSubtypes: [], bytes: 1, resourceFilenames: ["image.heic"]) == .photo)
+        #expect(CleanupCategory.classify(mediaType: .video, mediaSubtypes: [], bytes: 99_999_999, resourceFilenames: ["clip.mov"]) == .video)
+        #expect(CleanupCategory.classify(mediaType: .video, mediaSubtypes: [], bytes: 100_000_000, resourceFilenames: ["clip.mov"]) == .largeVideo)
+    }
+
+    @Test @MainActor
+    func legacyCleanupStatisticsStillDecode() throws {
+        let json = #"{"reviewedCount":1,"events":[{"id":"00000000-0000-0000-0000-000000000001","date":0,"mediaKind":"photo","category":"other","bytes":42}]}"#
+        let decoded = try JSONDecoder().decode(CleanupStatistics.self, from: Data(json.utf8))
+
+        #expect(decoded.reviewedCount == 1)
+        #expect(decoded.events.first?.category == .other)
+        #expect(decoded.reclaimedBytes == 42)
     }
 
     @Test @MainActor
@@ -225,5 +251,24 @@ struct TidyAlbumTests {
 
         #expect(motion.translation.y == -760)
         #expect(motion.scale == 0.982)
+    }
+
+    @Test
+    func mainlandWGS84CoordinateConvertsToGCJ02() {
+        let converted = ChinaCoordinateTransform.gcj02Coordinate(
+            fromWGS84: CLLocationCoordinate2D(latitude: 39.908823, longitude: 116.397470)
+        )
+
+        #expect(abs(converted.latitude - 39.9102265) < 0.00001)
+        #expect(abs(converted.longitude - 116.4037136) < 0.00001)
+    }
+
+    @Test
+    func coordinateOutsideMainlandRemainsUnchanged() {
+        let tokyo = CLLocationCoordinate2D(latitude: 35.681236, longitude: 139.767125)
+        let converted = ChinaCoordinateTransform.gcj02Coordinate(fromWGS84: tokyo)
+
+        #expect(converted.latitude == tokyo.latitude)
+        #expect(converted.longitude == tokyo.longitude)
     }
 }

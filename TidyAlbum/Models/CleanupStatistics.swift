@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import Photos
+import UniformTypeIdentifiers
 
 // MARK: - Statistics Models
 
@@ -13,10 +14,52 @@ enum CleanupMediaKind: String, Codable, CaseIterable, Identifiable {
 
 enum CleanupCategory: String, Codable, CaseIterable, Identifiable {
     case screenshot
+    case livePhoto
+    case panorama
+    case portrait
+    case rawPhoto
     case largeVideo
+    case video
+    case photo
     case other
 
     var id: String { rawValue }
+
+    nonisolated static func classify(
+        mediaType: PHAssetMediaType,
+        mediaSubtypes: PHAssetMediaSubtype,
+        bytes: Int64,
+        resourceFilenames: [String]
+    ) -> CleanupCategory {
+        if mediaSubtypes.contains(.photoScreenshot) {
+            return .screenshot
+        }
+        if mediaType == .video {
+            return bytes >= 100_000_000 ? .largeVideo : .video
+        }
+        if mediaSubtypes.contains(.photoLive) {
+            return .livePhoto
+        }
+        if mediaSubtypes.contains(.photoPanorama) {
+            return .panorama
+        }
+        if mediaSubtypes.contains(.photoDepthEffect) {
+            return .portrait
+        }
+        if resourceFilenames.contains(where: isRawImageFilename) {
+            return .rawPhoto
+        }
+        return mediaType == .image ? .photo : .other
+    }
+
+    nonisolated private static func isRawImageFilename(_ filename: String) -> Bool {
+        let fileExtension = URL(fileURLWithPath: filename).pathExtension
+        guard !fileExtension.isEmpty,
+              let type = UTType(filenameExtension: fileExtension) else {
+            return false
+        }
+        return type.conforms(to: .rawImage)
+    }
 }
 
 struct CleanupEvent: Codable, Identifiable {
@@ -79,14 +122,12 @@ final class AnalyticsStore: ObservableObject {
 
     func recordDeletion(asset: PHAsset, bytes: Int64) {
         let mediaKind: CleanupMediaKind = asset.mediaType == .video ? .video : .photo
-        let category: CleanupCategory
-        if asset.mediaSubtypes.contains(.photoScreenshot) {
-            category = .screenshot
-        } else if asset.mediaType == .video && bytes >= 100_000_000 {
-            category = .largeVideo
-        } else {
-            category = .other
-        }
+        let category = CleanupCategory.classify(
+            mediaType: asset.mediaType,
+            mediaSubtypes: asset.mediaSubtypes,
+            bytes: bytes,
+            resourceFilenames: PHAssetResource.assetResources(for: asset).map(\.originalFilename)
+        )
         statistics.events.append(
             CleanupEvent(id: UUID(), date: .now, mediaKind: mediaKind, category: category, bytes: max(bytes, 0))
         )

@@ -118,6 +118,8 @@ struct CleaningView: View {
         ToolbarItem(placement: .topBarLeading) {
             Button(action: exitSession) {
                 Image(systemName: "xmark")
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(settings.t("Close"))
         }
@@ -125,7 +127,7 @@ struct CleaningView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button { showsTrash = true } label: {
                 Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
-
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .badge(manager.trashBin.count)
@@ -138,6 +140,7 @@ struct CleaningView: View {
                     if isUndoing { ProgressView().controlSize(.small) }
                     else { Image(systemName: "arrow.uturn.backward").font(.body.weight(.semibold)) }
                 }
+                .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
             }
             .disabled(!manager.canUndo || isUndoing)
@@ -165,6 +168,7 @@ struct CleaningView: View {
                     if isPreparingShare { ProgressView().controlSize(.small) }
                     else { Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)) }
                 }
+                .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
             }
             
@@ -389,8 +393,9 @@ private struct CleaningAssetInfoIsland: View {
 
     private func placeDescription(for location: CLLocation) async -> String? {
         let geocoder = CLGeocoder()
+        let geocodingLocation = ChinaCoordinateTransform.gcj02Location(fromWGS84: location)
         let placemarks = try? await geocoder.reverseGeocodeLocation(
-            location,
+            geocodingLocation,
             preferredLocale: settings.language.locale
         )
         guard let placemark = placemarks?.first else { return nil }

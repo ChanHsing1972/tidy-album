@@ -96,6 +96,13 @@ struct WelcomeView: View {
             )
 
             WelcomeFeatureRow(
+                icon: "shuffle",
+                color: .indigo,
+                title: settings.t("Random Review"),
+                description: settings.t("Shuffle your library for a fresh, effortless review every time.")
+            )
+
+            WelcomeFeatureRow(
                 icon: "chart.bar.xaxis",
                 color: .orange,
                 title: settings.t("Track Progress"),

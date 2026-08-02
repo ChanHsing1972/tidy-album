@@ -182,14 +182,15 @@ struct AssetDetailsView: View {
     // MARK: - 2. Location Card
 
     private func locationCard(_ location: CLLocation) -> some View {
-        VStack(spacing: 0) {
+        let displayLocation = ChinaCoordinateTransform.gcj02Location(fromWGS84: location)
+        return VStack(spacing: 0) {
             // 地图预览
             Map(initialPosition: .region(MKCoordinateRegion(
-                center: location.coordinate,
+                center: displayLocation.coordinate,
                 latitudinalMeters: 800,
                 longitudinalMeters: 800
             ))) {
-                Marker("", coordinate: location.coordinate)
+                Marker("", coordinate: displayLocation.coordinate)
             }
             .mapStyle(.standard(elevation: .realistic))
             .frame(height: 160)
@@ -203,7 +204,7 @@ struct AssetDetailsView: View {
                             .font(.subheadline)
                             .foregroundStyle(.primary)
                     } else {
-                        Text(coordinateText(location.coordinate))
+                        Text(coordinateText(displayLocation.coordinate))
                             .font(.subheadline)
                             .foregroundStyle(.blue)
                         ProgressView()
@@ -221,7 +222,7 @@ struct AssetDetailsView: View {
                 .stroke(.primary.opacity(0.08), lineWidth: 0.5)
         }
         .task {
-            placeName = await reverseGeocode(location)
+            placeName = await reverseGeocode(displayLocation)
         }
     }
 
