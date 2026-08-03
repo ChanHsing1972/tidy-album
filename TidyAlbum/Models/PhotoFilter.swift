@@ -20,6 +20,8 @@ enum PhotoFilter: String, CaseIterable, Identifiable, Equatable {
     case selfies = "自拍"
     /// 个人收藏
     case favorites = "个人收藏"
+    /// 由本机图像指纹识别出的相似照片
+    case similar = "相似照片"
 
     // MARK: Identifiable
 
@@ -38,6 +40,7 @@ enum PhotoFilter: String, CaseIterable, Identifiable, Equatable {
         case .livePhotos:  "livephoto"
         case .selfies:     "person.crop.square"
         case .favorites:   "heart.fill"
+        case .similar:     "square.on.square.intersection.dashed"
         }
     }
 }

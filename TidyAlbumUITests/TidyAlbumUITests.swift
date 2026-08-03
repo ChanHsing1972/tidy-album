@@ -65,6 +65,13 @@ final class TidyAlbumUITests: XCTestCase {
         assertCurrentCardIsAligned(currentCard, in: app)
         attachScreenshot(named: "Cleaning - After Delete", app: app)
 
+        for _ in 0..<3 {
+            currentCard.swipeLeft()
+            currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
+            assertCurrentCardIsAligned(currentCard, in: app)
+        }
+        attachScreenshot(named: "Cleaning - Three Photos Past Delete", app: app)
+
         let undo = firstEnabledButton(in: app, labels: ["撤回", "Undo"], timeout: 3)
         XCTAssertNotNil(undo, "Undo did not become available after deleting an item")
         undo?.tap()
@@ -82,8 +89,10 @@ final class TidyAlbumUITests: XCTestCase {
             currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
         }
         XCTAssertNotNil(finish, "The completion page did not become active")
-        XCTAssertFalse(app.buttons["详情"].exists)
-        XCTAssertFalse(app.buttons["Details"].exists)
+        XCTAssertTrue(
+            waitForButtonsToDisappear(in: app, labels: ["详情", "Details"], timeout: 1),
+            "The details island remained accessible after its fade-out"
+        )
         attachScreenshot(named: "Cleaning - Completion", app: app)
 
         let stage = app.descendants(matching: .any)
@@ -94,6 +103,76 @@ final class TidyAlbumUITests: XCTestCase {
         currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
         assertCurrentCardIsAligned(currentCard, in: app)
         attachScreenshot(named: "Cleaning - Back From Completion", app: app)
+    }
+
+    @MainActor
+    func testCalendarSimilarityAndAlbumSwipeFlow() throws {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "-settings.cleaningGroupSize", "25",
+            "-settings.downwardSwipeAction", "addToAlbum"
+        ]
+        app.launch()
+
+        dismissWelcomeIfNeeded(in: app)
+
+        let similar = app.descendants(matching: .any)
+            .matching(identifier: "tidyalbum.filter.similar")
+            .firstMatch
+        XCTAssertTrue(similar.waitForExistence(timeout: 15), "Similar Photos was not available on the Clean tab")
+
+        let calendarTab = try XCTUnwrap(firstExistingButton(
+            in: app,
+            labels: ["日历", "Calendar"],
+            timeout: 3
+        ))
+        calendarTab.tap()
+        let calendar = app.descendants(matching: .any)
+            .matching(identifier: "tidyalbum.calendar")
+            .firstMatch
+        XCTAssertTrue(calendar.waitForExistence(timeout: 10), "The Calendar tab did not load")
+        attachScreenshot(named: "Calendar - Month Grid", app: app)
+
+        let settingsTab = try XCTUnwrap(firstExistingButton(
+            in: app,
+            labels: ["设置", "Settings"],
+            timeout: 3
+        ))
+        settingsTab.tap()
+        let downwardAction = app.descendants(matching: .any)
+            .matching(identifier: "tidyalbum.settings.downward-swipe-action")
+            .firstMatch
+        XCTAssertTrue(downwardAction.waitForExistence(timeout: 3), "Swipe Down Action was not available in Settings")
+        downwardAction.tap()
+        let addToAlbum = firstExistingButton(in: app, labels: ["加入相簿", "Add to Album"], timeout: 2)
+        XCTAssertNotNil(addToAlbum, "The Swipe Down Action picker did not expose Add to Album")
+        addToAlbum?.tap()
+
+        let cleanTab = try XCTUnwrap(firstExistingButton(
+            in: app,
+            labels: ["清理", "Clean"],
+            timeout: 3
+        ))
+        cleanTab.tap()
+        let startCleaning = firstExistingButton(
+            in: app,
+            labels: ["开始清理", "Start Cleaning"],
+            timeout: 15
+        )
+        XCTAssertNotNil(startCleaning, "The photo library did not become ready for cleaning")
+        startCleaning?.tap()
+
+        let currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 10))
+        currentCard.swipeDown()
+        let albumPicker = app.descendants(matching: .any)
+            .matching(identifier: "tidyalbum.album-picker")
+            .firstMatch
+        XCTAssertTrue(albumPicker.waitForExistence(timeout: 5), "Swipe down did not present the album picker")
+        XCTAssertNotNil(
+            firstExistingButton(in: app, labels: ["新建相簿", "New Album"], timeout: 2),
+            "The album picker did not expose album creation"
+        )
+        attachScreenshot(named: "Cleaning - Album Picker", app: app)
     }
 
     @MainActor
@@ -141,6 +220,20 @@ final class TidyAlbumUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         } while Date() < deadline
         return nil
+    }
+
+    @MainActor
+    private func waitForButtonsToDisappear(
+        in app: XCUIApplication,
+        labels: [String],
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if labels.allSatisfy({ !app.buttons[$0].firstMatch.exists }) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
+        return labels.allSatisfy { !app.buttons[$0].firstMatch.exists }
     }
 
     @MainActor

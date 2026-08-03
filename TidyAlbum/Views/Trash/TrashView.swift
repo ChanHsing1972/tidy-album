@@ -110,11 +110,9 @@ struct TrashView: View {
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.body.weight(.semibold))
-                    .contentShape(Rectangle())
+                Label("Exit", systemImage: "xmark")
             }
-            .foregroundStyle(.primary)
+            .tint(.primary)
             .accessibilityLabel(settings.t("Close"))
         }
         
@@ -158,11 +156,9 @@ struct TrashView: View {
                 .disabled(manager.trashBin.isEmpty || manager.isDeleting)
 
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
-                    .contentShape(Rectangle())
+                Label("More", systemImage: "ellipsis")
             }
-            .foregroundStyle(.primary)
+            .tint(.primary)
             .opacity(manager.trashBin.isEmpty ? 0.35 : 1)
             .disabled(manager.trashBin.isEmpty)
         }

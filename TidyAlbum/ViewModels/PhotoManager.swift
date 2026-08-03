@@ -33,6 +33,7 @@ final class PhotoManager: NSObject, ObservableObject {
     @Published private(set) var sessionGroupTotalCount = 0
     @Published private(set) var sessionSummary = CleaningSessionSummary()
     @Published private(set) var viewedAssetCount = 0
+    @Published private(set) var similarityProgress: Double?
     @Published var currentFilter: PhotoFilter = .all
     @Published private var favoriteStates: [String: Bool] = [:]
 
@@ -51,6 +52,7 @@ final class PhotoManager: NSObject, ObservableObject {
     private var overviewRevision = 0
     private var hasRestoredPendingQueue = false
     private var overviewRefreshTask: Task<Void, Never>?
+    private var photoFetchTask: Task<Void, Never>?
     private var persistedViewedIdentifiers: Set<String> = []
     private let pendingDeletionKey = "photoManager.pendingDeletionIdentifiers.v1"
     private let viewedIdentifiersKey = "photoManager.viewedIdentifiers.v1"
@@ -92,6 +94,7 @@ final class PhotoManager: NSObject, ObservableObject {
 
     deinit {
         overviewRefreshTask?.cancel()
+        photoFetchTask?.cancel()
         photoService.unregisterChangeObserver(self)
     }
 
@@ -128,6 +131,7 @@ final class PhotoManager: NSObject, ObservableObject {
     func setFilter(_ filter: PhotoFilter) {
         guard filter != currentFilter else { return }
         currentFilter = filter
+        if filter != .similar { similarityProgress = nil }
         fetchPhotos()
     }
 
@@ -138,15 +142,32 @@ final class PhotoManager: NSObject, ObservableObject {
         fetchRevision += 1
         let revision = fetchRevision
         let requestedFilter = currentFilter
-        Task {
-            let fetched = await photoService.fetchAssets(filter: requestedFilter)
-            let trashIDs = Set(trashBin.map(\.localIdentifier))
+        if requestedFilter == .similar { similarityProgress = 0 }
+        photoFetchTask?.cancel()
+        photoFetchTask = Task { [weak self] in
+            guard let self else { return }
+            let source = await self.photoService.fetchAssets(filter: requestedFilter)
+            guard !Task.isCancelled else { return }
+            let fetched: [PHAsset]
+            if requestedFilter == .similar {
+                fetched = await LocalSimilarityService.shared.similarAssets(in: source) { progress in
+                    guard revision == self.fetchRevision else { return }
+                    self.similarityProgress = progress
+                }
+            } else {
+                fetched = source
+            }
+            guard !Task.isCancelled else { return }
+            let trashIDs = Set(self.trashBin.map(\.localIdentifier))
             let available = fetched.filter { !trashIDs.contains($0.localIdentifier) }
-            guard revision == fetchRevision, requestedFilter == currentFilter, isAuthorized else { return }
-            assets = available
-            filterCounts[requestedFilter] = available.count
-            loadedFilter = requestedFilter
-            isLoading = false
+            guard revision == self.fetchRevision,
+                  requestedFilter == self.currentFilter,
+                  self.isAuthorized else { return }
+            self.assets = available
+            self.filterCounts[requestedFilter] = available.count
+            self.loadedFilter = requestedFilter
+            self.isLoading = false
+            if requestedFilter == .similar { self.similarityProgress = nil }
         }
     }
 
@@ -157,10 +178,13 @@ final class PhotoManager: NSObject, ObservableObject {
         Task {
             let trashIDs = Set(trashBin.map(\.localIdentifier))
             var counts: [PhotoFilter: Int] = [:]
-            for filter in PhotoFilter.allCases {
+            for filter in PhotoFilter.allCases where filter != .similar {
                 let fetched = await photoService.fetchAssets(filter: filter)
                 guard revision == overviewRevision, isAuthorized else { return }
                 counts[filter] = fetched.lazy.filter { !trashIDs.contains($0.localIdentifier) }.count
+            }
+            if let similarCount = filterCounts[.similar] {
+                counts[.similar] = similarCount
             }
             filterCounts = counts
         }
@@ -177,6 +201,12 @@ final class PhotoManager: NSObject, ObservableObject {
             }
             available.shuffle()
         }
+        beginSession(with: available)
+    }
+
+    func beginSession(with requestedAssets: [PHAsset]) {
+        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let available = requestedAssets.filter { !trashIDs.contains($0.localIdentifier) }
         sessionQueue = available
         sessionCursor = 0
         isSessionActive = true
@@ -238,6 +268,25 @@ final class PhotoManager: NSObject, ObservableObject {
             Array(sessionAssets[lower..<upper]),
             targetSize: CGSize(width: 1_200, height: 1_600)
         )
+    }
+
+    func fetchCalendarAssets() async -> [PHAsset] {
+        let fetched = await photoService.fetchAssets(filter: .all)
+        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        return fetched.filter { !trashIDs.contains($0.localIdentifier) }
+    }
+
+    func fetchUserAlbums() async -> [PHAssetCollection] {
+        await photoService.fetchUserAlbums()
+    }
+
+    func addToAlbum(_ asset: PHAsset, album: PHAssetCollection) async throws {
+        try await photoService.add(asset, to: album)
+    }
+
+    func createAlbum(named title: String, adding asset: PHAsset) async throws {
+        let album = try await photoService.createAlbum(named: title)
+        try await photoService.add(asset, to: album)
     }
 
     func endSession() {
@@ -455,6 +504,7 @@ final class PhotoManager: NSObject, ObservableObject {
             case .livePhotos: asset.mediaSubtypes.contains(.photoLive)
             case .favorites: isFavorite(asset)
             case .selfies: currentFilter == .selfies
+            case .similar: currentFilter == .similar && assets.contains { $0.localIdentifier == asset.localIdentifier }
             }
         }
         for filter in matchingFilters {

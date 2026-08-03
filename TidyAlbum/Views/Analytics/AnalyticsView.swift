@@ -60,10 +60,9 @@ struct AnalyticsView: View {
                 .tint(.red)
                 .disabled(stats.reviewedCount == 0 && stats.cleanedCount == 0)
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
+                Label("More", systemImage: "ellipsis")
             }
-            .foregroundStyle(.primary)
+            .tint(.primary)
             .accessibilityLabel(settings.t("More"))
         }
     }
@@ -111,15 +110,6 @@ struct AnalyticsView: View {
                         delay: 0,
                         duration: DesignTokens.Spring.default.response
                     )
-
-//                sectionDivider
-//                productivity
-//                    .padding(.top, 30)
-//                    .staggeredReveal(
-//                        isVisible: isVisible,
-//                        delay: 0.21,
-//                        duration: DesignTokens.Spring.default.response
-//                    )
             }
             .frame(maxWidth: 720, alignment: .leading)
             .padding(.horizontal, 24)
@@ -384,51 +374,27 @@ struct AnalyticsView: View {
             sectionHeader(settings.t("Cleaning Wins"))
                 .padding(.bottom, 12)
             resultRow(
-                settings.t("Screenshots Cleaned"),
-                value: stats.count(for: .screenshot),
-                symbol: "camera.viewfinder",
+                settings.t("Photos"),
+                value: stats.count(for: .photo),
+                symbol: "photo.on.rectangle",
                 color: .primary
             )
             resultRow(
-                settings.t("Large Videos"),
-                value: stats.count(for: .largeVideo),
-                symbol: "video.fill",
-                color: .primary
-            )
-            resultRow(
-                settings.t("Live Photos Cleaned"),
-                value: stats.count(for: .livePhoto),
-                symbol: "livephoto",
-                color: .primary
-            )
-            resultRow(
-                settings.t("Panoramas Cleaned"),
-                value: stats.count(for: .panorama),
-                symbol: "pano",
-                color: .primary
-            )
-            resultRow(
-                settings.t("Portraits Cleaned"),
-                value: stats.count(for: .portrait),
-                symbol: "person.crop.rectangle",
-                color: .primary
-            )
-            resultRow(
-                settings.t("RAW Photos Cleaned"),
-                value: stats.count(for: .rawPhoto),
-                symbol: "camera.aperture",
-                color: .primary
-            )
-            resultRow(
-                settings.t("Videos Cleaned"),
+                settings.t("Videos"),
                 value: stats.count(for: .video),
                 symbol: "video",
                 color: .primary
             )
             resultRow(
-                settings.t("Photos Cleaned"),
-                value: stats.count(for: .photo),
-                symbol: "photo.on.rectangle",
+                settings.t("Screenshots"),
+                value: stats.count(for: .screenshot),
+                symbol: "camera.viewfinder",
+                color: .primary
+            )
+            resultRow(
+                settings.t("Live Photos"),
+                value: stats.count(for: .livePhoto),
+                symbol: "livephoto",
                 color: .primary
             )
             if stats.count(for: .other) > 0 {
@@ -450,7 +416,6 @@ struct AnalyticsView: View {
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.body.weight(.semibold))
                 .foregroundStyle(color)
                 .frame(width: 34)
                 .accessibilityHidden(true)
@@ -463,27 +428,6 @@ struct AnalyticsView: View {
         }
         .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
-    }
-
-    // MARK: Productivity
-
-    private var productivity: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(settings.t("Most Productive Time"), systemImage: "clock.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(productiveTime)
-                .font(.title2.bold().monospacedDigit())
-                .contentTransition(.numericText())
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var productiveTime: String {
-        guard let hour = stats.mostProductiveHour else {
-            return settings.t("No cleanup history yet")
-        }
-        return String(format: "%02d:00 – %02d:00", hour, (hour + 1) % 24)
     }
 
     private var sectionDivider: some View {

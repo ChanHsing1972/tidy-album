@@ -25,6 +25,9 @@ protocol PhotoLibraryServiceProtocol: AnyObject {
     /// Restores assets referenced by the app's persisted pending-deletion queue.
     func fetchAssets(localIdentifiers: [String]) async -> [PHAsset]
 
+    /// Reads user-created albums for the in-app album chooser.
+    func fetchUserAlbums() async -> [PHAssetCollection]
+
     // MARK: 资源操作
 
     /// 删除指定照片资源（物理删除，不可恢复）
@@ -33,6 +36,10 @@ protocol PhotoLibraryServiceProtocol: AnyObject {
 
     /// 将照片收藏状态设置为明确值，便于可靠撤回操作。
     func setFavorite(_ isFavorite: Bool, for asset: PHAsset) async throws
+
+    /// Adds an asset to an existing album or creates a new album.
+    func add(_ asset: PHAsset, to album: PHAssetCollection) async throws
+    func createAlbum(named title: String) async throws -> PHAssetCollection
 
     // MARK: 变更监听
 

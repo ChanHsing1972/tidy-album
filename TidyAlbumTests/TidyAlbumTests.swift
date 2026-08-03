@@ -28,6 +28,7 @@ struct TidyAlbumTests {
         settings.excludesViewedInRandomMode = true
         settings.progressDisplayMode = .barOnly
         settings.cleaningGroupSize = .extraLarge
+        settings.downwardSwipeAction = .addToAlbum
 
         let restored = SettingsStore(defaults: defaults)
         #expect(restored.language == .english)
@@ -38,6 +39,7 @@ struct TidyAlbumTests {
         #expect(restored.excludesViewedInRandomMode)
         #expect(restored.progressDisplayMode == .barOnly)
         #expect(restored.cleaningGroupSize == .extraLarge)
+        #expect(restored.downwardSwipeAction == .addToAlbum)
     }
 
     @Test @MainActor

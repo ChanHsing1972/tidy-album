@@ -36,6 +36,11 @@ struct ContentView: View {
                     Label(settings.t("Clean"), systemImage: "sparkles")
                 }
 
+            PhotoCalendarView(manager: manager, settings: settings)
+                .tabItem {
+                    Label(settings.t("Calendar"), systemImage: "calendar")
+                }
+
             AnalyticsView(store: analytics, settings: settings, manager: manager)
                 .tabItem {
                     Label(settings.t("Analytics"), systemImage: "chart.bar.xaxis")

@@ -62,6 +62,9 @@ final class PhotoLibraryService: PhotoLibraryServiceProtocol {
         case .livePhotos:
             result = PHAsset.fetchAssets(with: .image, options: options)
 
+        case .similar:
+            result = PHAsset.fetchAssets(with: .image, options: options)
+
         case .selfies:
             let collections = PHAssetCollection.fetchAssetCollections(
                 with: .smartAlbum,
@@ -110,6 +113,19 @@ final class PhotoLibraryService: PhotoLibraryServiceProtocol {
         }.value
     }
 
+    func fetchUserAlbums() async -> [PHAssetCollection] {
+        let options = PHFetchOptions()
+        options.sortDescriptors = [NSSortDescriptor(key: "localizedTitle", ascending: true)]
+        let result = PHAssetCollection.fetchAssetCollections(
+            with: .album,
+            subtype: .albumRegular,
+            options: options
+        )
+        var albums: [PHAssetCollection] = []
+        result.enumerateObjects { album, _, _ in albums.append(album) }
+        return albums
+    }
+
     // MARK: - 资源操作 (Asset Operations)
 
     func deleteAssets(_ assets: [PHAsset]) async throws {
@@ -123,6 +139,44 @@ final class PhotoLibraryService: PhotoLibraryServiceProtocol {
             let request = PHAssetChangeRequest(for: asset)
             request.isFavorite = isFavorite
         }
+    }
+
+    func add(_ asset: PHAsset, to album: PHAssetCollection) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetCollectionChangeRequest(for: album)?.addAssets([asset] as NSArray)
+        }
+    }
+
+    func createAlbum(named title: String) async throws -> PHAssetCollection {
+        let identifier: String = try await withCheckedThrowingContinuation { continuation in
+            var placeholderIdentifier = ""
+            PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: title)
+                placeholderIdentifier = request.placeholderForCreatedAssetCollection.localIdentifier
+            } completionHandler: { success, error in
+                if success, !placeholderIdentifier.isEmpty {
+                    continuation.resume(returning: placeholderIdentifier)
+                } else {
+                    continuation.resume(throwing: error ?? NSError(
+                        domain: "TidyAlbum.PhotoLibrary",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Unable to create album"]
+                    ))
+                }
+            }
+        }
+        let result = PHAssetCollection.fetchAssetCollections(
+            withLocalIdentifiers: [identifier],
+            options: nil
+        )
+        guard let album = result.firstObject else {
+            throw NSError(
+                domain: "TidyAlbum.PhotoLibrary",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Created album was not found"]
+            )
+        }
+        return album
     }
 
     // MARK: - 变更监听 (Change Observation)

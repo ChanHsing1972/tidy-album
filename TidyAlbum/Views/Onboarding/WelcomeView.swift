@@ -39,7 +39,7 @@ struct WelcomeView: View {
                 }
                 .frame(maxWidth: 460)
                 .padding(.horizontal, 32)
-                .padding(.top, 56)
+                .padding(.top, 46)
                 .padding(.bottom, 120) // 为底部固定按钮留出空间
                 .frame(maxWidth: .infinity)
             }
@@ -74,7 +74,7 @@ struct WelcomeView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 16)
-        .padding(.bottom, 48)
+        .padding(.bottom, 40)
     }
 
     // MARK: - Feature List

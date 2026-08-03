@@ -84,6 +84,13 @@ enum AssetInfoDisplayMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum DownwardSwipeAction: String, CaseIterable, Identifiable {
+    case favorite
+    case addToAlbum
+
+    var id: String { rawValue }
+}
+
 // MARK: - Settings Store
 
 @MainActor
@@ -99,6 +106,7 @@ final class SettingsStore: ObservableObject {
         static let cleaningGroupSize = "settings.cleaningGroupSize"
         static let themeMode = "settings.themeMode"
         static let assetInfoDisplayMode = "settings.assetInfoDisplayMode"
+        static let downwardSwipeAction = "settings.downwardSwipeAction"
     }
 
     @Published var language: AppLanguage {
@@ -141,6 +149,10 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(assetInfoDisplayMode.rawValue, forKey: Key.assetInfoDisplayMode) }
     }
 
+    @Published var downwardSwipeAction: DownwardSwipeAction {
+        didSet { defaults.set(downwardSwipeAction.rawValue, forKey: Key.downwardSwipeAction) }
+    }
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -155,5 +167,8 @@ final class SettingsStore: ObservableObject {
         cleaningGroupSize = CleaningGroupSize(rawValue: defaults.integer(forKey: Key.cleaningGroupSize)) ?? .compact
         themeMode = ThemeMode(rawValue: defaults.string(forKey: Key.themeMode) ?? "") ?? .dark
         assetInfoDisplayMode = AssetInfoDisplayMode(rawValue: defaults.string(forKey: Key.assetInfoDisplayMode) ?? "") ?? .location
+        downwardSwipeAction = DownwardSwipeAction(
+            rawValue: defaults.string(forKey: Key.downwardSwipeAction) ?? ""
+        ) ?? .favorite
     }
 }

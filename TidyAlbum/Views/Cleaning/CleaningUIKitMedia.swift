@@ -101,7 +101,11 @@ final class CleaningCardPageView: UIView {
         self.isFavorite = isFavorite
     }
 
-    func setActionProgress(translation: CGFloat, isFavorite: Bool) {
+    func setActionProgress(
+        translation: CGFloat,
+        isFavorite: Bool,
+        downwardAction: DownwardSwipeAction
+    ) {
         guard translation != 0 else {
             actionView.setProgress(0, kind: .delete)
             return
@@ -109,7 +113,11 @@ final class CleaningCardPageView: UIView {
         let progress = min(abs(translation) / 92, 1)
         actionView.setProgress(
             progress,
-            kind: translation < 0 ? .delete : (isFavorite ? .unfavorite : .favorite)
+            kind: translation < 0
+                ? .delete
+                : downwardAction == .addToAlbum
+                    ? .album
+                    : (isFavorite ? .unfavorite : .favorite)
         )
     }
 
@@ -132,7 +140,7 @@ final class CleaningCardPageView: UIView {
 
 @MainActor
 private final class CleaningActionIndicatorView: UIView {
-    enum Kind { case delete, favorite, unfavorite }
+    enum Kind { case delete, favorite, unfavorite, album }
 
     private let imageView = UIImageView()
     private var kind = Kind.delete
@@ -164,10 +172,15 @@ private final class CleaningActionIndicatorView: UIView {
             case .delete: symbolName = "trash.fill"
             case .favorite: symbolName = "heart.fill"
             case .unfavorite: symbolName = "heart.slash.fill"
+            case .album: symbolName = "rectangle.stack.badge.plus"
             }
             let configuration = UIImage.SymbolConfiguration(pointSize: 42, weight: .semibold)
             imageView.image = UIImage(systemName: symbolName, withConfiguration: configuration)
-            backgroundColor = kind == .delete ? .systemRed : .systemPink
+            switch kind {
+            case .delete: backgroundColor = .systemRed
+            case .favorite, .unfavorite: backgroundColor = .systemPink
+            case .album: backgroundColor = .systemBlue
+            }
         }
         alpha = progress
         let scale = 0.72 + progress * 0.38

@@ -14,7 +14,7 @@ enum AppStrings {
         "Pending deletion": "待删除", "Start Cleaning": "开始清理", "Choose a collection": "选择清理范围",
         "Library Overview": "图库概览", "Selected Collection": "当前分类", "Collections": "分类",
         "Loading Photos": "正在载入照片", "Review Pending Items": "查看待删除项目",
-        "All Photos": "全部", "All": "全部", "Photos": "照片", "Screenshots": "截屏", "Selfies": "自拍", "Favorites": "个人收藏",
+        "All Photos": "全部", "All": "全部", "Photos": "照片", "Screenshots": "截屏", "Selfies": "自拍", "Favorites": "个人收藏", "Similar Photos": "相似照片", "Large Videos": "大型视频",
         "Live Photos": "实况照片", "Some photos are not available to TidyAlbum.": "部分照片尚未授权给 TidyAlbum。",
         "No items in this collection": "此分类中暂无项目", "Review another collection": "查看其他分类",
         "Review complete": "浏览完成", "You reviewed every item in this session.": "你已浏览完本次会话的全部项目。",
@@ -31,15 +31,12 @@ enum AppStrings {
         "Duration": "时长", "Unknown File": "未知文件", "Unknown Date": "未知日期", "Share": "分享",
         "Space Reclaimed": "累计释放空间", "Items Cleaned": "累计清理", "Items Reviewed": "累计浏览",
         "Cleanup Overview": "清理概览", "Space by Media": "释放空间分布", "Videos": "视频", "Date": "日期",
-        "Cleaning Wins": "清理详情", "Screenshots Cleaned": "已清理截屏", "Large Videos": "大型视频",
-        "Live Photos Cleaned": "已清理实况照片", "Panoramas Cleaned": "已清理全景照片", "Portraits Cleaned": "已清理人像照片",
-        "RAW Photos Cleaned": "已清理 RAW 照片", "Videos Cleaned": "已清理普通视频", "Photos Cleaned": "已清理普通照片",
-        "Other Items": "其他项目", "Most Productive Time": "最高效时段", "No cleanup history yet": "暂无清理记录",
+        "Cleaning Wins": "清理详情", "Other Items": "其他项目", "Most Productive Time": "最高效时段", "No cleanup history yet": "暂无清理记录",
         "Last 7 Days": "近七日", "Total": "总计",
         "More": "更多", "Reset Statistics": "重置统计", "Reset Cleanup History?": "重置清理记录？",
         "This removes cleanup statistics from this device.": "这会从当前设备移除全部清理统计。",
         "Start a cleaning session to see your progress here.": "完成一次清理后，这里会展示你的成果。",
-        "General": "通用", "Language": "语言", "Haptic Feedback": "触觉反馈", "Auto-Play Live Photos": "自动播放实况照片", "Cleaning Preferences": "清理偏好",
+        "General": "通用", "Language": "语言", "Haptic Feedback": "触觉反馈", "Auto-Play Live Photos": "自动播放实况照片", "Cleaning Preferences": "清理偏好", "Swipe Down Action": "下滑动作", "Add to Album": "加入相簿",
         "Delete Behavior": "删除方式", "App Trash First": "先放入 App 待删除", "Move to System Trash": "直接移入系统废纸篓",
         "Photo Order": "照片顺序", "Newest First": "按日期倒序", "Random": "随机抽取", "About & Support": "关于",
         "Filter Viewed Items": "过滤已查看项目", "Viewed Items": "已查看项目", "Clear Viewed History": "清空已查看记录",
@@ -77,7 +74,7 @@ enum AppStrings {
         "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑快速删除，下滑添加收藏，左右滑动即可轻松浏览所有照片。",
         "Private & Local": "绝对私密", "Everything stays on your device. No data is ever uploaded.": "所有数据仅保留在本地设备，绝不会上传至任何服务器。",
         "Random Review": "随机抽取", "Shuffle your library for a fresh, effortless review every time.": "随机打乱图库，每次都能轻松发现不同的照片。",
-        "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时直观查看累计清理数，以及成功释放的存储空间。", "Continue": "继续", "Welcome to\nTidyAlbum": "欢迎使用\nTidyAlbum"
+        "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时直观查看累计清理数，以及成功释放的存储空间。", "Continue": "继续", "Welcome to\nTidyAlbum": "欢迎使用\nTidyAlbum", "Calendar": "日历", "Photo Calendar": "照片日历", "Photos by Month": "按月份查看照片", "No Dated Photos": "没有包含拍摄日期的照片", "Scan on Device": "在本机扫描", "Finding Similar Photos": "正在识别相似照片", "Similar Photo Privacy": "图像指纹仅在本机生成和比较，不会上传照片。", "Choose Album": "选择相簿", "Albums": "相簿", "New Album": "新建相簿", "Album Name": "相簿名称", "Add": "加入", "Unable to Add to Album": "无法加入相簿", "No Albums": "暂无相簿", "Create an album to organize this photo.": "新建一个相簿来整理这张照片。"
     ]
 }
 

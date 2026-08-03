@@ -67,6 +67,13 @@ struct SettingsView: View {
                     } label: {
                         Label(settings.t("Info Display"), systemImage: "info.circle")
                     }
+                    Picker(selection: $settings.downwardSwipeAction) {
+                        Text(settings.t("Favorite")).tag(DownwardSwipeAction.favorite)
+                        Text(settings.t("Add to Album")).tag(DownwardSwipeAction.addToAlbum)
+                    } label: {
+                        Label(settings.t("Swipe Down Action"), systemImage: "arrow.down")
+                    }
+                    .accessibilityIdentifier("tidyalbum.settings.downward-swipe-action")
                     Picker(selection: $settings.progressDisplayMode) {
                         Text(settings.t("Numbers Only")).tag(ProgressDisplayMode.textOnly)
                         Text(settings.t("Bar Only")).tag(ProgressDisplayMode.barOnly)

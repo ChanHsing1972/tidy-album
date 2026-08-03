@@ -24,6 +24,7 @@ struct CleaningUIKitCardStage: UIViewControllerRepresentable {
     let isFavorite: (PHAsset) -> Bool
     let onDelete: (PHAsset, Int) -> Void
     let onToggleFavorite: (PHAsset, Int) -> Void
+    let onAddToAlbum: (PHAsset) -> Void
     let onNextGroup: () -> Void
     let onEnd: () -> Void
 
@@ -49,11 +50,13 @@ struct CleaningUIKitCardStage: UIViewControllerRepresentable {
             selectionAnimationRequest: selectionAnimationRequest,
             hapticsEnabled: hapticsEnabled,
             autoPlayLivePhotos: settings.autoPlayLivePhotos,
+            downwardSwipeAction: settings.downwardSwipeAction,
             favoriteIdentifiers: Set(assets.lazy.filter(isFavorite).map(\.localIdentifier)),
             completionContent: completion,
             onSelection: { selectedAssetID = $0 },
             onDelete: onDelete,
             onToggleFavorite: onToggleFavorite,
+            onAddToAlbum: onAddToAlbum,
             onNextGroup: onNextGroup,
             onEnd: onEnd
         )
@@ -103,6 +106,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var animator: UIViewPropertyAnimator?
     private var hapticsEnabled = true
     private var autoPlayLivePhotos = true
+    private var downwardSwipeAction = DownwardSwipeAction.favorite
     private var lastSelectionAnimationToken: UUID?
     private let deletionHaptic = UIImpactFeedbackGenerator(style: .rigid)
     private let favoriteHaptic = UIImpactFeedbackGenerator(style: .soft)
@@ -111,6 +115,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var onSelection: ((String) -> Void)?
     private var onDelete: ((PHAsset, Int) -> Void)?
     private var onToggleFavorite: ((PHAsset, Int) -> Void)?
+    private var onAddToAlbum: ((PHAsset) -> Void)?
     private var onNextGroup: (() -> Void)?
     private var onEnd: (() -> Void)?
 
@@ -140,7 +145,12 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         super.viewDidLayoutSubviews()
         for page in cardViews.values { positionPageAtRest(page) }
         if let completionView { positionPageAtRest(completionView) }
-        applyTransformsWithoutAnimation()
+        // A SwiftUI toolbar update can trigger layout while the undo animator is
+        // running. Reapplying the model's end transform here would skip the
+        // presentation-layer animation and make the restored card appear at once.
+        if undoAnimationTargetID == nil {
+            applyTransformsWithoutAnimation()
+        }
     }
 
     func configure(
@@ -149,21 +159,25 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         selectionAnimationRequest: CleaningSelectionAnimationRequest?,
         hapticsEnabled: Bool,
         autoPlayLivePhotos: Bool,
+        downwardSwipeAction: DownwardSwipeAction,
         favoriteIdentifiers: Set<String>,
         completionContent: CleaningCompletionContent,
         onSelection: @escaping (String) -> Void,
         onDelete: @escaping (PHAsset, Int) -> Void,
         onToggleFavorite: @escaping (PHAsset, Int) -> Void,
+        onAddToAlbum: @escaping (PHAsset) -> Void,
         onNextGroup: @escaping () -> Void,
         onEnd: @escaping () -> Void
     ) {
         self.onSelection = onSelection
         self.onDelete = onDelete
         self.onToggleFavorite = onToggleFavorite
+        self.onAddToAlbum = onAddToAlbum
         self.onNextGroup = onNextGroup
         self.onEnd = onEnd
         self.hapticsEnabled = hapticsEnabled
         self.autoPlayLivePhotos = autoPlayLivePhotos
+        self.downwardSwipeAction = downwardSwipeAction
         self.favoriteIdentifiers = favoriteIdentifiers
         self.completionContent = completionContent
 
@@ -345,6 +359,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         }
         if resolved < 0 {
             commitDeletion(releaseVelocity: velocity)
+        } else if downwardSwipeAction == .addToAlbum {
+            commitAddToAlbum()
         } else {
             commitFavorite()
         }
@@ -412,6 +428,20 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         resetGesture(animated: true)
     }
 
+    private func commitAddToAlbum() {
+        guard let currentIndex, assets.indices.contains(currentIndex) else {
+            resetGesture(animated: true)
+            return
+        }
+        let asset = assets[currentIndex]
+        isTransitioning = true
+        committedActionDirection = 1
+        applyTransformsWithoutAnimation()
+        deliverActionHapticIfNeeded(deleting: false)
+        onAddToAlbum?(asset)
+        resetGesture(animated: true)
+    }
+
     private func commitHorizontalSelection(_ identifier: String) {
         selectedAssetID = identifier
         resetMotion()
@@ -440,7 +470,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     }
 
     private func animateDeletionUndo(to identifier: String) {
-        guard cardViews[identifier] != nil else {
+        guard prepareUndoPage(for: identifier) else {
             selectedAssetID = identifier
             resetMotion()
             isTransitioning = false
@@ -454,18 +484,40 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         ensureBackdropTransition(targetID: identifier)
         isTransitioning = true
         applyTransformsWithoutAnimation()
+
+        // Keep the controller in sync with the binding immediately. SwiftUI can
+        // call configure again before this animator finishes; leaving the old ID
+        // here causes that update to replace the undo with a normal page turn.
+        selectedAssetID = identifier
+        updatePageContent()
         undoAnimationProgress = 1
         animate(duration: 0.38, dampingRatio: 0.9, animations: {
             self.applyTransforms()
             self.session.setTransitionProgress(1)
         }) { [weak self] in
             guard let self else { return }
-            self.selectedAssetID = identifier
             self.resetMotion()
             self.isTransitioning = false
             self.session.commitSelection(identifier)
             self.reconcilePages()
         }
+    }
+
+    private func prepareUndoPage(for identifier: String) -> Bool {
+        if cardViews[identifier] != nil { return true }
+        guard let index = assetIndexByID[identifier], assets.indices.contains(index) else { return false }
+        let asset = assets[index]
+        let page = CleaningCardPageView()
+        cardViews[identifier] = page
+        positionPageAtRest(page)
+        view.addSubview(page)
+        page.configure(
+            asset: asset,
+            isFavorite: favoriteIdentifiers.contains(identifier),
+            autoPlayLivePhotos: autoPlayLivePhotos,
+            host: self
+        )
+        return true
     }
 
     private func resetGesture(animated: Bool) {
@@ -628,7 +680,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                 ?? (axis == .vertical ? translation.y : 0)
             page.setActionProgress(
                 translation: index == currentPageIndex ? actionTranslation : 0,
-                isFavorite: favoriteIdentifiers.contains(identifier)
+                isFavorite: favoriteIdentifiers.contains(identifier),
+                downwardAction: downwardSwipeAction
             )
         }
         if let completionView {

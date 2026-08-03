@@ -13,6 +13,7 @@ struct CleaningView: View {
 
     @State private var selectedAssetID = ""
     @State private var detailsSelection: AssetSheetSelection?
+    @State private var albumSelection: AlbumAssetSelection?
     @State private var showsTrash = false
     @State private var activityItems: ActivityItems?
     @State private var isPreparingShare = false
@@ -60,6 +61,7 @@ struct CleaningView: View {
                             isFavorite: manager.isFavorite,
                             onDelete: manager.markForDeletion,
                             onToggleFavorite: manager.markFavorite,
+                            onAddToAlbum: { albumSelection = AlbumAssetSelection(asset: $0) },
                             onNextGroup: loadNextGroup,
                             onEnd: finishSession
                         )
@@ -74,6 +76,9 @@ struct CleaningView: View {
         .onAppear { selectInitialAsset() }
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings).id(selection.id)
+        }
+        .sheet(item: $albumSelection) { selection in
+            AlbumPickerView(asset: selection.asset, manager: manager, settings: settings)
         }
         .sheet(isPresented: $showsTrash) {
             TrashView(manager: manager, settings: settings)
@@ -117,14 +122,14 @@ struct CleaningView: View {
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button(action: exitSession) {
-                Image(systemName: "xmark")
+                Label("Exit", systemImage: "xmark")
             }
             .accessibilityLabel(settings.t("Close"))
         }
         ToolbarItem(placement: .principal) { sessionProgress }
         ToolbarItem(placement: .topBarTrailing) {
             Button { showsTrash = true } label: {
-                Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+                Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
             }
             .badge(manager.trashBin.count)
             .accessibilityLabel(settings.t("Trash"))
@@ -133,7 +138,8 @@ struct CleaningView: View {
             Button { undo() } label: {
                 Group {
                     if isUndoing { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "arrow.uturn.backward").font(.body.weight(.semibold)) }
+                    else { Label("Undo", systemImage: "arrow.uturn.backward") }
+
                 }
             }
             .disabled(!manager.canUndo || isUndoing)
@@ -152,7 +158,7 @@ struct CleaningView: View {
             Button(action: prepareShare) {
                 Group {
                     if isPreparingShare { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)) }
+                    else { Label("Share", systemImage: "square.and.arrow.up") }
                 }
             }
             
@@ -250,6 +256,11 @@ private struct AssetSheetSelection: Identifiable {
     var id: String { asset.localIdentifier }
 }
 
+private struct AlbumAssetSelection: Identifiable {
+    let asset: PHAsset
+    var id: String { asset.localIdentifier }
+}
+
 private struct AnimatedProgressBar: View {
     let value: Double
 
@@ -277,6 +288,7 @@ private struct CleaningAssetInfoIslandButton: View {
     @State private var displayedAsset: PHAsset?
     @State private var displayedFavorite: Bool
     @State private var isVisible: Bool
+    @State private var removalToken: UUID?
 
     init(
         asset: PHAsset?,
@@ -296,31 +308,43 @@ private struct CleaningAssetInfoIslandButton: View {
     }
 
     var body: some View {
-        Button {
-            if let displayedAsset { onSelect(displayedAsset) }
-        } label: {
-            CleaningAssetInfoIsland(
-                asset: displayedAsset,
-                settings: settings,
-                isFavorite: displayedFavorite
-            )
-            .frame(width: 210)
-            .frame(minHeight: 44)
-            .contentShape(Capsule())
+        Group {
+            if let displayedAsset {
+                Button {
+                    onSelect(displayedAsset)
+                } label: {
+                    CleaningAssetInfoIsland(
+                        asset: displayedAsset,
+                        settings: settings,
+                        isFavorite: displayedFavorite
+                    )
+                    .frame(width: 210)
+                    .frame(minHeight: 44)
+                    .contentShape(Capsule())
+                }
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityHidden(!isVisible)
+                .allowsHitTesting(isVisible)
+                .opacity(isVisible ? 1 : 0)
+                .animation(.easeInOut(duration: 0.22), value: isVisible)
+            }
         }
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityHidden(!isVisible)
-        .allowsHitTesting(isVisible)
         .frame(width: 210)
-        .opacity(isVisible ? 1 : 0)
-        .animation(.easeInOut(duration: 0.22), value: isVisible)
         .onChange(of: asset?.localIdentifier, initial: true) { _, _ in
             if let asset {
+                removalToken = nil
                 displayedAsset = asset
                 displayedFavorite = isFavorite
                 isVisible = true
             } else {
                 isVisible = false
+                let token = UUID()
+                removalToken = token
+                Task {
+                    try? await Task.sleep(for: .milliseconds(240))
+                    guard removalToken == token, asset == nil else { return }
+                    displayedAsset = nil
+                }
             }
         }
         .onChange(of: isFavorite) { _, newValue in
@@ -336,7 +360,9 @@ private struct CleaningAssetInfoIsland: View {
     let isFavorite: Bool
 
     @State private var placeName: String?
+    @State private var placeNameAssetID = ""
     @State private var assetFileSize: Int64?
+    @State private var fileSizeAssetID = ""
 
     private var assetIdentifier: String {
         asset?.localIdentifier ?? ""
@@ -369,15 +395,16 @@ private struct CleaningAssetInfoIsland: View {
                             .contentTransition(.opacity)
                     }
                     
-                    // 2. 位置/二级信息（只有真实存在时才插入 VStack，以便单行时时间能居中）
-                    if hasSecondaryInfo, let text = secondaryInfoText(for: asset) {
-                        Text(text)
+                    // Reserve the second line before asynchronous metadata arrives.
+                    // This keeps the time baseline fixed while location text fades in.
+                    if hasSecondaryInfo {
+                        let text = secondaryInfoText(for: asset)
+                        Text(text ?? " ")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                            .contentTransition(.opacity)
-                            // 消失/出现时仅做透明度淡入淡出，高度交由 VStack 弹性平滑挤压
-                            .transition(.opacity)
+                            .opacity(text == nil ? 0 : 1)
+                            .animation(.easeInOut(duration: 0.18), value: text)
                     }
                 }
                 
@@ -396,30 +423,29 @@ private struct CleaningAssetInfoIsland: View {
             }
         }
         .padding(.horizontal, 12)
-        // 核心：当 hasSecondaryInfo 改变（单双行切换）、爱心改变、或切换图片时，
-        // 使用弹簧动画平滑过渡 VStack 布局重排（时间移动到中央/移动到顶部）
         .animation(.easeInOut(duration: 0.22), value: assetIdentifier)
-        .animation(.spring(response: 0.32, dampingFraction: 0.8), value: hasSecondaryInfo)
+        .animation(.easeInOut(duration: 0.2), value: hasSecondaryInfo)
         .animation(.easeOut(duration: 0.18), value: isFavorite)
-        .animation(.easeInOut(duration: 0.22), value: placeName)
         .task(id: asset.map { "\($0.localIdentifier)-\(settings.language.rawValue)-\(settings.assetInfoDisplayMode.rawValue)" } ?? "") {
             guard let asset else { return }
             
             switch settings.assetInfoDisplayMode {
             case .location:
+                placeNameAssetID = ""
+                placeName = nil
                 if let location = asset.location {
                     let name = await placeDescription(for: location)
                     withAnimation(.easeInOut(duration: 0.22)) {
+                        placeNameAssetID = asset.localIdentifier
                         placeName = name
-                    }
-                } else {
-                    withAnimation(.easeInOut(duration: 0.22)) {
-                        placeName = nil
                     }
                 }
             case .fileSize:
+                fileSizeAssetID = ""
+                assetFileSize = nil
                 let size = await loadFileSize(for: asset)
                 withAnimation(.easeInOut(duration: 0.22)) {
+                    fileSizeAssetID = asset.localIdentifier
                     assetFileSize = size
                 }
             case .fullDate, .resolution:
@@ -431,9 +457,9 @@ private struct CleaningAssetInfoIsland: View {
     private func secondaryInfoText(for asset: PHAsset) -> String? {
         switch settings.assetInfoDisplayMode {
         case .location:
-            return placeName
+            return placeNameAssetID == asset.localIdentifier ? placeName : nil
         case .fileSize:
-            if let size = assetFileSize {
+            if fileSizeAssetID == asset.localIdentifier, let size = assetFileSize {
                 return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
             }
             return nil

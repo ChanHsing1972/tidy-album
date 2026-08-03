@@ -50,8 +50,7 @@ struct CleanHomeView: View {
         if manager.isAuthorized {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showsTrash = true } label: {
-                    Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
-                        .contentShape(Rectangle())
+                    Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
                 }
                 .badge(manager.trashBin.count)
                 .id("trash-badge-\(manager.trashBin.count)")
@@ -65,9 +64,7 @@ struct CleanHomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if manager.isLimited { limitedAccessBanner }
-                if !manager.trashBin.isEmpty { pendingDeletionRow }
                 collectionSection
-//                privacyFooter
             }
             .frame(maxWidth: 760)
             .padding(.horizontal, 20)
@@ -83,40 +80,6 @@ struct CleanHomeView: View {
 
     private var libraryCount: Int {
         manager.filterCounts[.all] ?? (manager.currentFilter == .all ? manager.assets.count : 0)
-    }
-
-    // MARK: Pending Deletion
-
-    private var pendingDeletionRow: some View {
-        Button { showsTrash = true } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "trash")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
-                    .background(.primary.opacity(0.06), in: Circle())
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(settings.t("Pending deletion"))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("\(manager.trashBin.count) \(settings.t("Items")) · \(formattedPendingBytes)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(16)
-            .background(
-                Color(uiColor: .secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(ApplePressButtonStyle())
-        .accessibilityHint(settings.t("Review Pending Items"))
     }
 
     private var formattedPendingBytes: String {
@@ -143,6 +106,16 @@ struct CleanHomeView: View {
                 .accessibilityValue("\(manager.cleaningCandidateCount) \(settings.t("Items"))")
             }
 
+            if manager.currentFilter == .similar, let progress = manager.similarityProgress {
+                ProgressView(value: progress) {
+                    Text(settings.t("Finding Similar Photos"))
+                        .font(.subheadline.weight(.semibold))
+                } currentValueLabel: {
+                    Text(progress, format: .percent.precision(.fractionLength(0)))
+                        .font(.caption.monospacedDigit())
+                }
+            }
+
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                 spacing: 12
@@ -156,6 +129,7 @@ struct CleanHomeView: View {
                     ) {
                         manager.setFilter(filter)
                     }
+                    .accessibilityIdentifier("tidyalbum.filter.\(filter.testIdentifier)")
                 }
             }
         }
@@ -184,6 +158,7 @@ struct CleanHomeView: View {
         case .livePhotos: settings.t("Live Photos")
         case .selfies: settings.t("Selfies")
         case .favorites: settings.t("Favorites")
+        case .similar: settings.t("Similar Photos")
         }
     }
 
@@ -236,11 +211,20 @@ struct CleanHomeView: View {
               let controller = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }
         PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller)
     }
+}
 
-    private var privacyFooter: some View {
-        Label(settings.t("All processing stays on this iPhone or iPad."), systemImage: "lock.shield")
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .center)
+private extension PhotoFilter {
+    var testIdentifier: String {
+        switch self {
+        case .all: "all"
+        case .photos: "photos"
+        case .screenshots: "screenshots"
+        case .videos: "videos"
+        case .largeVideos: "large-videos"
+        case .livePhotos: "live-photos"
+        case .selfies: "selfies"
+        case .favorites: "favorites"
+        case .similar: "similar"
+        }
     }
 }
