@@ -326,8 +326,10 @@ final class PhotoManager: NSObject, ObservableObject {
 
     func undoLastAction() async -> UndoResult? {
         guard let action = history.popLast() else { return nil }
+        let restoresDeletedAsset: Bool
         switch action.kind {
         case .deletion:
+            restoresDeletedAsset = true
             trashBin.removeAll { $0.localIdentifier == action.asset.localIdentifier }
             persistTrash()
             removeFromSessionDeletionSummary(action.asset)
@@ -336,6 +338,7 @@ final class PhotoManager: NSObject, ObservableObject {
             adjustFilterCounts(for: action.asset, delta: 1)
             scheduleLibraryOverviewRefresh()
         case let .favorite(previous, _):
+            restoresDeletedAsset = false
             let current = isFavorite(action.asset)
             favoriteStates[action.asset.localIdentifier] = previous
             if current != previous {
@@ -346,7 +349,10 @@ final class PhotoManager: NSObject, ObservableObject {
             }
             try? await photoService.setFavorite(previous, for: action.asset)
         }
-        return UndoResult(assetIdentifier: action.asset.localIdentifier)
+        return UndoResult(
+            assetIdentifier: action.asset.localIdentifier,
+            restoresDeletedAsset: restoresDeletedAsset
+        )
     }
 
     // MARK: Pending Deletion
@@ -512,6 +518,7 @@ private struct ReviewAction {
 
 struct UndoResult {
     let assetIdentifier: String
+    let restoresDeletedAsset: Bool
 }
 
 // MARK: - Photo Library Changes

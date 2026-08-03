@@ -20,8 +20,7 @@ struct CleaningView: View {
     @State private var isExiting = false
     @State private var showsShareError = false
     @State private var renderingSession = CleaningUIKitSession()
-
-    private let navigationSpring = Animation.spring(duration: 0.34, bounce: 0.12)
+    @State private var selectionAnimationRequest: CleaningSelectionAnimationRequest?
 
     private var currentIndex: Int? {
         manager.sessionAssets.firstIndex { $0.localIdentifier == selectedAssetID }
@@ -52,6 +51,7 @@ struct CleaningView: View {
                             session: renderingSession,
                             assets: manager.sessionAssets,
                             selectedAssetID: $selectedAssetID,
+                            selectionAnimationRequest: selectionAnimationRequest,
                             settings: settings,
                             hapticsEnabled: settings.hapticsEnabled,
                             hasNextGroup: manager.hasNextGroup,
@@ -118,8 +118,6 @@ struct CleaningView: View {
         ToolbarItem(placement: .topBarLeading) {
             Button(action: exitSession) {
                 Image(systemName: "xmark")
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
             }
             .accessibilityLabel(settings.t("Close"))
         }
@@ -127,11 +125,8 @@ struct CleaningView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button { showsTrash = true } label: {
                 Image(systemName: manager.trashBin.isEmpty ? "trash" : "trash.fill")
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
             }
             .badge(manager.trashBin.count)
-            .id("trash-btn-\(manager.trashBin.count)")
             .accessibilityLabel(settings.t("Trash"))
         }
         ToolbarItemGroup(placement: .bottomBar) {
@@ -140,36 +135,25 @@ struct CleaningView: View {
                     if isUndoing { ProgressView().controlSize(.small) }
                     else { Image(systemName: "arrow.uturn.backward").font(.body.weight(.semibold)) }
                 }
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
             }
             .disabled(!manager.canUndo || isUndoing)
             .opacity(manager.canUndo ? 1 : 0.35)
             .accessibilityLabel(settings.t("Undo"))
             Spacer()
-            Button { detailsSelection = currentAsset.map { AssetSheetSelection(asset: $0) } } label: {
-                CleaningAssetInfoIsland(
-                    asset: currentAsset,
-                    settings: settings,
-                    isFavorite: currentAsset.map { manager.isFavorite($0) } ?? false
-                )
-                .frame(width: 210)
-                .frame(minHeight: 44)
-                .contentShape(Capsule())
+            CleaningAssetInfoIslandButton(
+                asset: currentAsset,
+                settings: settings,
+                isFavorite: currentAsset.map(manager.isFavorite) ?? false,
+                accessibilityLabel: settings.t("Details")
+            ) { asset in
+                detailsSelection = AssetSheetSelection(asset: asset)
             }
-            
-            .disabled(currentAsset == nil)
-            .opacity(currentAsset == nil ? 0 : 1)
-            .accessibilityLabel(settings.t("Details"))
-            .frame(width: 210)
             Spacer()
             Button(action: prepareShare) {
                 Group {
                     if isPreparingShare { ProgressView().controlSize(.small) }
                     else { Image(systemName: "square.and.arrow.up").font(.body.weight(.semibold)) }
                 }
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
             }
             
             .disabled(currentAsset == nil || isPreparingShare)
@@ -207,9 +191,13 @@ struct CleaningView: View {
         Task {
             defer { isUndoing = false }
             guard let result = await manager.undoLastAction() else { return }
-            withAnimation(navigationSpring) {
-                selectedAssetID = result.assetIdentifier
+            if result.restoresDeletedAsset {
+                selectionAnimationRequest = CleaningSelectionAnimationRequest(
+                    token: UUID(),
+                    assetIdentifier: result.assetIdentifier
+                )
             }
+            selectedAssetID = result.assetIdentifier
         }
     }
 
@@ -279,6 +267,69 @@ private struct AnimatedProgressBar: View {
     }
 }
 
+private struct CleaningAssetInfoIslandButton: View {
+    let asset: PHAsset?
+    @ObservedObject var settings: SettingsStore
+    let isFavorite: Bool
+    let accessibilityLabel: String
+    let onSelect: (PHAsset) -> Void
+
+    @State private var displayedAsset: PHAsset?
+    @State private var displayedFavorite: Bool
+    @State private var isVisible: Bool
+
+    init(
+        asset: PHAsset?,
+        settings: SettingsStore,
+        isFavorite: Bool,
+        accessibilityLabel: String,
+        onSelect: @escaping (PHAsset) -> Void
+    ) {
+        self.asset = asset
+        self.settings = settings
+        self.isFavorite = isFavorite
+        self.accessibilityLabel = accessibilityLabel
+        self.onSelect = onSelect
+        _displayedAsset = State(initialValue: asset)
+        _displayedFavorite = State(initialValue: isFavorite)
+        _isVisible = State(initialValue: asset != nil)
+    }
+
+    var body: some View {
+        Button {
+            if let displayedAsset { onSelect(displayedAsset) }
+        } label: {
+            CleaningAssetInfoIsland(
+                asset: displayedAsset,
+                settings: settings,
+                isFavorite: displayedFavorite
+            )
+            .frame(width: 210)
+            .frame(minHeight: 44)
+            .contentShape(Capsule())
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHidden(!isVisible)
+        .allowsHitTesting(isVisible)
+        .frame(width: 210)
+        .opacity(isVisible ? 1 : 0)
+        .animation(.easeInOut(duration: 0.22), value: isVisible)
+        .onChange(of: asset?.localIdentifier, initial: true) { _, _ in
+            if let asset {
+                displayedAsset = asset
+                displayedFavorite = isFavorite
+                isVisible = true
+            } else {
+                isVisible = false
+            }
+        }
+        .onChange(of: isFavorite) { _, newValue in
+            guard asset != nil else { return }
+            displayedFavorite = newValue
+        }
+    }
+}
+
 private struct CleaningAssetInfoIsland: View {
     let asset: PHAsset?
     @ObservedObject var settings: SettingsStore
@@ -335,7 +386,12 @@ private struct CleaningAssetInfoIsland: View {
                     Image(systemName: "heart.fill")
                         .font(.caption)
                         .foregroundStyle(.primary)
-                        .transition(.scale(scale: 0.5).combined(with: .opacity))
+                        .transition(
+                            .asymmetric(
+                                insertion: .scale(scale: 0.5).combined(with: .opacity),
+                                removal: .identity
+                            )
+                        )
                 }
             }
         }
@@ -344,7 +400,7 @@ private struct CleaningAssetInfoIsland: View {
         // 使用弹簧动画平滑过渡 VStack 布局重排（时间移动到中央/移动到顶部）
         .animation(.easeInOut(duration: 0.22), value: assetIdentifier)
         .animation(.spring(response: 0.32, dampingFraction: 0.8), value: hasSecondaryInfo)
-        .animation(.spring(response: 0.32, dampingFraction: 0.8), value: isFavorite)
+        .animation(.easeOut(duration: 0.18), value: isFavorite)
         .animation(.easeInOut(duration: 0.22), value: placeName)
         .task(id: asset.map { "\($0.localIdentifier)-\(settings.language.rawValue)-\(settings.assetInfoDisplayMode.rawValue)" } ?? "") {
             guard let asset else { return }

@@ -268,7 +268,11 @@ final class CleaningBackdropRenderView: UIView {
             if targetImageView.image != nil { targetImageView.image = nil }
             targetImageView.alpha = 0
         }
-        if selectedAssetID == CleaningPageID.groupCompletion {
+        if transitionSourceID == CleaningPageID.groupCompletion,
+           transitionTargetID != nil,
+           transitionTargetID != CleaningPageID.groupCompletion {
+            completionOverlay.alpha = 1 - transitionProgress
+        } else if selectedAssetID == CleaningPageID.groupCompletion {
             completionOverlay.alpha = 1
         } else if transitionTargetID == CleaningPageID.groupCompletion {
             completionOverlay.alpha = transitionProgress

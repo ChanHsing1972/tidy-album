@@ -64,6 +64,36 @@ final class TidyAlbumUITests: XCTestCase {
         currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
         assertCurrentCardIsAligned(currentCard, in: app)
         attachScreenshot(named: "Cleaning - After Delete", app: app)
+
+        let undo = firstEnabledButton(in: app, labels: ["撤回", "Undo"], timeout: 3)
+        XCTAssertNotNil(undo, "Undo did not become available after deleting an item")
+        undo?.tap()
+        currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
+        assertCurrentCardIsAligned(currentCard, in: app)
+        attachScreenshot(named: "Cleaning - After Undo", app: app)
+
+        var finish: XCUIElement?
+        for _ in 0..<25 {
+            currentCard.swipeLeft()
+            if let button = firstExistingButton(in: app, labels: ["完成", "Finish"], timeout: 0.15) {
+                finish = button
+                break
+            }
+            currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
+        }
+        XCTAssertNotNil(finish, "The completion page did not become active")
+        XCTAssertFalse(app.buttons["详情"].exists)
+        XCTAssertFalse(app.buttons["Details"].exists)
+        attachScreenshot(named: "Cleaning - Completion", app: app)
+
+        let stage = app.descendants(matching: .any)
+            .matching(identifier: "tidyalbum.cleaning-stage")
+            .firstMatch
+        XCTAssertTrue(stage.exists)
+        stage.swipeRight()
+        currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
+        assertCurrentCardIsAligned(currentCard, in: app)
+        attachScreenshot(named: "Cleaning - Back From Completion", app: app)
     }
 
     @MainActor
@@ -92,6 +122,23 @@ final class TidyAlbumUITests: XCTestCase {
                 if button.exists { return button }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return nil
+    }
+
+    @MainActor
+    private func firstEnabledButton(
+        in app: XCUIApplication,
+        labels: [String],
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            for label in labels {
+                let button = app.buttons[label].firstMatch
+                if button.exists, button.isEnabled { return button }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         } while Date() < deadline
         return nil
     }

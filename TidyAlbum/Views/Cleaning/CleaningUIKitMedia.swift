@@ -106,7 +106,7 @@ final class CleaningCardPageView: UIView {
             actionView.setProgress(0, kind: .delete)
             return
         }
-        let progress = min(abs(translation) / 150, 1)
+        let progress = min(abs(translation) / 92, 1)
         actionView.setProgress(
             progress,
             kind: translation < 0 ? .delete : (isFavorite ? .unfavorite : .favorite)
@@ -193,6 +193,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
     private var livePhotoRequestID: PHImageRequestID?
     private var livePhotoView: PHLivePhotoView?
     private var hasFinalLivePhoto = false
+    private var isLivePhotoPlaying = false
     private var autoPlayLivePhotos = true
 
     override init(frame: CGRect) {
@@ -201,6 +202,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         clipsToBounds = true
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
+        imageView.isUserInteractionEnabled = false
         addSubview(imageView)
         addSubview(videoBadge)
         addSubview(livePhotoBadge)
@@ -232,6 +234,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         self.asset = asset
         assetIdentifier = asset.localIdentifier
         imageView.image = nil
+        imageView.alpha = 1
         requestedImageKey = ""
         updateBadge()
         setNeedsLayout()
@@ -298,11 +301,11 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
                     withDuration: 0.16,
                     delay: 0,
                     options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut],
-                    animations: { self.imageView.alpha = 1 }
+                    animations: { self.imageView.alpha = self.isLivePhotoPlaying ? 0 : 1 }
                 )
             } else {
                 self.imageView.image = image
-                self.imageView.alpha = 1
+                self.imageView.alpha = self.isLivePhotoPlaying ? 0 : 1
             }
         }
     }
@@ -391,6 +394,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         liveView.isMuted = true
         liveView.delegate = self
         insertSubview(liveView, aboveSubview: imageView)
+        insertSubview(imageView, aboveSubview: liveView)
         livePhotoView = liveView
         let requestedIdentifier = asset.localIdentifier
         let scale = window?.screen.scale ?? UIScreen.main.scale
@@ -420,11 +424,35 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
 
     func livePhotoView(
         _ livePhotoView: PHLivePhotoView,
+        willBeginPlaybackWith playbackStyle: PHLivePhotoViewPlaybackStyle
+    ) {
+        guard isActive, self.livePhotoView === livePhotoView else { return }
+        isLivePhotoPlaying = true
+        UIView.animate(
+            withDuration: 0.1,
+            delay: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut],
+            animations: { self.imageView.alpha = 0 }
+        )
+    }
+
+    func livePhotoView(
+        _ livePhotoView: PHLivePhotoView,
         didEndPlaybackWith playbackStyle: PHLivePhotoViewPlaybackStyle
     ) {
-        guard isActive, autoPlayLivePhotos else { return }
+        guard isActive, self.livePhotoView === livePhotoView else { return }
+        guard autoPlayLivePhotos else {
+            isLivePhotoPlaying = false
+            UIView.animate(
+                withDuration: 0.12,
+                delay: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut],
+                animations: { self.imageView.alpha = 1 }
+            )
+            return
+        }
         DispatchQueue.main.async { [weak self, weak livePhotoView] in
-            guard self?.isActive == true else { return }
+            guard let self, self.isActive, self.autoPlayLivePhotos else { return }
             livePhotoView?.startPlayback(with: .full)
         }
     }
@@ -443,7 +471,9 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
                 startLivePhoto(asset)
             }
         } else {
+            isLivePhotoPlaying = false
             livePhotoView?.stopPlayback()
+            imageView.alpha = 1
         }
     }
 
@@ -468,6 +498,10 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
             controller.removeFromParent()
         }
         playerController = nil
+        tearDownLivePhoto()
+    }
+
+    private func tearDownLivePhoto() {
         if let livePhotoRequestID { PHImageManager.default().cancelImageRequest(livePhotoRequestID) }
         livePhotoRequestID = nil
         livePhotoView?.stopPlayback()
@@ -475,6 +509,8 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         livePhotoView?.removeFromSuperview()
         livePhotoView = nil
         hasFinalLivePhoto = false
+        isLivePhotoPlaying = false
+        imageView.alpha = 1
     }
 }
 
