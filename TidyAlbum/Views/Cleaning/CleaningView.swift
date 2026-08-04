@@ -18,7 +18,10 @@ struct CleaningView: View {
     @State private var activityItems: ActivityItems?
     @State private var isPreparingShare = false
     @State private var isUndoing = false
+    @State private var pendingUndoCount = 0
     @State private var isExiting = false
+    @State private var showsTimeline = false
+    @State private var isInspecting = false
     @State private var showsShareError = false
     @State private var renderingSession = CleaningUIKitSession()
     @State private var selectionAnimationRequest: CleaningSelectionAnimationRequest?
@@ -62,6 +65,10 @@ struct CleaningView: View {
                             onDelete: manager.markForDeletion,
                             onToggleFavorite: manager.markFavorite,
                             onAddToAlbum: { albumSelection = AlbumAssetSelection(asset: $0) },
+                            onShowTimeline: { showsTimeline = true },
+                            onImmersiveChange: { immersive in
+                                withAnimation(.easeInOut(duration: 0.2)) { isInspecting = immersive }
+                            },
                             onNextGroup: loadNextGroup,
                             onEnd: finishSession
                         )
@@ -71,8 +78,11 @@ struct CleaningView: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbarBackground(.hidden, for: .bottomBar)
             .toolbar { toolbar }
+            .toolbar(isInspecting ? .hidden : .visible, for: .navigationBar)
+            .toolbar(isInspecting ? .hidden : .visible, for: .bottomBar)
         }
         .tint(.primary)
+        .statusBarHidden(isInspecting)
         .onAppear { selectInitialAsset() }
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings).id(selection.id)
@@ -86,6 +96,16 @@ struct CleaningView: View {
         .sheet(item: $activityItems) { items in
             ActivityView(items: items.values)
                 .presentationDetents([.medium, .large])
+        }
+        .fullScreenCover(isPresented: $showsTimeline) {
+            CleaningTimelineView(
+                assets: manager.sessionAssets,
+                selectedAssetID: selectedAssetID,
+                settings: settings
+            ) { identifier in
+                selectedAssetID = identifier
+                showsTimeline = false
+            }
         }
         .alert(settings.t("Unable to Share"), isPresented: $showsShareError) {
             Button(settings.t("Done"), role: .cancel) {}
@@ -135,14 +155,11 @@ struct CleaningView: View {
             .accessibilityLabel(settings.t("Trash"))
         }
         ToolbarItemGroup(placement: .bottomBar) {
-            Button { undo() } label: {
-                Group {
-                    if isUndoing { ProgressView().controlSize(.small) }
-                    else { Label("Undo", systemImage: "arrow.uturn.backward") }
-
-                }
+            Button { requestUndo() } label: {
+                Label("Undo", systemImage: "arrow.uturn.backward")
+                    .labelStyle(.iconOnly)
             }
-            .disabled(!manager.canUndo || isUndoing)
+            .disabled(!manager.canUndo)
             .opacity(manager.canUndo ? 1 : 0.35)
             .accessibilityLabel(settings.t("Undo"))
             Spacer()
@@ -158,7 +175,10 @@ struct CleaningView: View {
             Button(action: prepareShare) {
                 Group {
                     if isPreparingShare { ProgressView().controlSize(.small) }
-                    else { Label("Share", systemImage: "square.and.arrow.up") }
+                    else {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                            .labelStyle(.iconOnly)
+                    }
                 }
             }
             
@@ -191,19 +211,30 @@ struct CleaningView: View {
         }
     }
 
-    private func undo() {
+    private func requestUndo() {
+        guard manager.canUndo else { return }
+        pendingUndoCount += 1
         guard !isUndoing else { return }
         isUndoing = true
         Task {
-            defer { isUndoing = false }
-            guard let result = await manager.undoLastAction() else { return }
-            if result.restoresDeletedAsset {
-                selectionAnimationRequest = CleaningSelectionAnimationRequest(
-                    token: UUID(),
-                    assetIdentifier: result.assetIdentifier
+            while pendingUndoCount > 0 {
+                pendingUndoCount -= 1
+                guard let result = await manager.undoLastAction() else {
+                    pendingUndoCount = 0
+                    break
+                }
+                if result.restoresDeletedAsset {
+                    selectionAnimationRequest = CleaningSelectionAnimationRequest(
+                        token: UUID(),
+                        assetIdentifier: result.assetIdentifier
+                    )
+                }
+                selectedAssetID = result.assetIdentifier
+                try? await Task.sleep(
+                    for: result.restoresDeletedAsset ? .milliseconds(440) : .milliseconds(340)
                 )
             }
-            selectedAssetID = result.assetIdentifier
+            isUndoing = false
         }
     }
 
@@ -332,10 +363,26 @@ private struct CleaningAssetInfoIslandButton: View {
         .frame(width: 210)
         .onChange(of: asset?.localIdentifier, initial: true) { _, _ in
             if let asset {
+                // Returning from the completion page keeps the previous asset
+                // around briefly so the removal can fade out. Use visibility,
+                // rather than only the cached asset value, to make the next
+                // card fade back in even when the transition finishes before
+                // the delayed cache cleanup runs.
+                let needsFadeIn = !isVisible || displayedAsset == nil
                 removalToken = nil
                 displayedAsset = asset
                 displayedFavorite = isFavorite
-                isVisible = true
+                if needsFadeIn {
+                    isVisible = false
+                    let identifier = asset.localIdentifier
+                    Task {
+                        await Task.yield()
+                        guard displayedAsset?.localIdentifier == identifier else { return }
+                        isVisible = true
+                    }
+                } else {
+                    isVisible = true
+                }
             } else {
                 isVisible = false
                 let token = UUID()

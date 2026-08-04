@@ -18,6 +18,10 @@ struct CleaningPageMotion: Equatable {
 }
 
 enum CleaningMotionGeometry {
+    static func lockedVerticalComponent(_ value: CGFloat, intent: CGFloat) -> CGFloat {
+        intent < 0 ? min(value, 0) : max(value, 0)
+    }
+
     static func deletionTarget(currentIndex: Int, assetCount: Int) -> CleaningDeletionGeometry? {
         guard assetCount > 0, (0..<assetCount).contains(currentIndex) else { return nil }
         if currentIndex + 1 < assetCount {

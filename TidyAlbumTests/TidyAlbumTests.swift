@@ -143,6 +143,14 @@ struct TidyAlbumTests {
     }
 
     @Test @MainActor
+    func verticalIntentCannotReverseDuringOneGesture() {
+        #expect(CleaningMotionGeometry.lockedVerticalComponent(-120, intent: -1) == -120)
+        #expect(CleaningMotionGeometry.lockedVerticalComponent(80, intent: -1) == 0)
+        #expect(CleaningMotionGeometry.lockedVerticalComponent(120, intent: 1) == 120)
+        #expect(CleaningMotionGeometry.lockedVerticalComponent(-80, intent: 1) == 0)
+    }
+
+    @Test @MainActor
     func idlePagesKeepTheirExactPageSpacing() {
         let current = CleaningMotionGeometry.pageMotion(
             pageIndex: 2,

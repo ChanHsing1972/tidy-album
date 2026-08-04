@@ -93,6 +93,10 @@ final class TidyAlbumUITests: XCTestCase {
             waitForButtonsToDisappear(in: app, labels: ["详情", "Details"], timeout: 1),
             "The details island remained accessible after its fade-out"
         )
+        XCTAssertNotNil(
+            firstExistingButton(in: app, labels: ["分享", "Share"], timeout: 1),
+            "The Share button was replaced or removed on the completion page"
+        )
         attachScreenshot(named: "Cleaning - Completion", app: app)
 
         let stage = app.descendants(matching: .any)
@@ -173,6 +177,51 @@ final class TidyAlbumUITests: XCTestCase {
             "The album picker did not expose album creation"
         )
         attachScreenshot(named: "Cleaning - Album Picker", app: app)
+    }
+
+    @MainActor
+    func testCleaningPinchGesturesAndDoubleTap() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-settings.cleaningGroupSize", "25"]
+        app.launch()
+
+        dismissWelcomeIfNeeded(in: app)
+        let startCleaning = firstExistingButton(
+            in: app,
+            labels: ["开始清理", "Start Cleaning"],
+            timeout: 15
+        )
+        XCTAssertNotNil(startCleaning)
+        startCleaning?.tap()
+
+        var currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 10))
+        currentCard.doubleTap()
+        XCTAssertNotNil(
+            firstEnabledButton(in: app, labels: ["撤回", "Undo"], timeout: 2),
+            "Double tap did not toggle Favorite"
+        )
+
+        currentCard.pinch(withScale: 0.55, velocity: -1)
+        let timeline = app.descendants(matching: .any)
+            .matching(identifier: "tidyalbum.cleaning-timeline")
+            .firstMatch
+        XCTAssertTrue(timeline.waitForExistence(timeout: 5), "Pinching inward did not open the timeline")
+        attachScreenshot(named: "Cleaning - Timeline", app: app)
+        let close = firstExistingButton(in: app, labels: ["关闭", "Close"], timeout: 2)
+        XCTAssertNotNil(close)
+        close?.tap()
+
+        currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 5))
+        currentCard.pinch(withScale: 1.8, velocity: 1)
+        XCTAssertTrue(
+            waitForButtonsToDisappear(in: app, labels: ["详情", "Details"], timeout: 2),
+            "Pinching outward did not fade the surrounding UI"
+        )
+        currentCard.pinch(withScale: 0.5, velocity: -1)
+        XCTAssertNotNil(
+            firstExistingButton(in: app, labels: ["详情", "Details"], timeout: 3),
+            "Returning to the fitted scale did not restore the surrounding UI"
+        )
     }
 
     @MainActor

@@ -25,6 +25,8 @@ struct CleaningUIKitCardStage: UIViewControllerRepresentable {
     let onDelete: (PHAsset, Int) -> Void
     let onToggleFavorite: (PHAsset, Int) -> Void
     let onAddToAlbum: (PHAsset) -> Void
+    let onShowTimeline: () -> Void
+    let onImmersiveChange: (Bool) -> Void
     let onNextGroup: () -> Void
     let onEnd: () -> Void
 
@@ -57,6 +59,8 @@ struct CleaningUIKitCardStage: UIViewControllerRepresentable {
             onDelete: onDelete,
             onToggleFavorite: onToggleFavorite,
             onAddToAlbum: onAddToAlbum,
+            onShowTimeline: onShowTimeline,
+            onImmersiveChange: onImmersiveChange,
             onNextGroup: onNextGroup,
             onEnd: onEnd
         )
@@ -93,6 +97,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var cardViews: [String: CleaningCardPageView] = [:]
     private var completionView: CleaningCompletionPageView?
     private var axis = CleaningMotionAxis.undetermined
+    private var verticalIntent: CGFloat?
     private var translation = CGPoint.zero
     private var deletionProgress: CGFloat = 0
     private var isDeleting = false
@@ -104,6 +109,14 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var undoAnimationProgress: CGFloat = 0
     private var backdropTargetID: String?
     private var animator: UIViewPropertyAnimator?
+    private var inspectionAnimator: UIViewPropertyAnimator?
+    private var viewingScale: CGFloat = 1
+    private var viewingTranslation = CGPoint.zero
+    private var pinchStartScale: CGFloat = 1
+    private var pinchStartTranslation = CGPoint.zero
+    private var pinchStartLocation = CGPoint.zero
+    private var inspectionPanStart = CGPoint.zero
+    private var isImmersive = false
     private var hapticsEnabled = true
     private var autoPlayLivePhotos = true
     private var downwardSwipeAction = DownwardSwipeAction.favorite
@@ -116,6 +129,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var onDelete: ((PHAsset, Int) -> Void)?
     private var onToggleFavorite: ((PHAsset, Int) -> Void)?
     private var onAddToAlbum: ((PHAsset) -> Void)?
+    private var onShowTimeline: (() -> Void)?
+    private var onImmersiveChange: ((Bool) -> Void)?
     private var onNextGroup: (() -> Void)?
     private var onEnd: (() -> Void)?
 
@@ -138,6 +153,16 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         pan.cancelsTouchesInView = false
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
+
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        pinch.delegate = self
+        view.addGestureRecognizer(pinch)
+
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.delegate = self
+        doubleTap.cancelsTouchesInView = false
+        view.addGestureRecognizer(doubleTap)
 
     }
 
@@ -166,6 +191,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         onDelete: @escaping (PHAsset, Int) -> Void,
         onToggleFavorite: @escaping (PHAsset, Int) -> Void,
         onAddToAlbum: @escaping (PHAsset) -> Void,
+        onShowTimeline: @escaping () -> Void,
+        onImmersiveChange: @escaping (Bool) -> Void,
         onNextGroup: @escaping () -> Void,
         onEnd: @escaping () -> Void
     ) {
@@ -173,6 +200,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         self.onDelete = onDelete
         self.onToggleFavorite = onToggleFavorite
         self.onAddToAlbum = onAddToAlbum
+        self.onShowTimeline = onShowTimeline
+        self.onImmersiveChange = onImmersiveChange
         self.onNextGroup = onNextGroup
         self.onEnd = onEnd
         self.hapticsEnabled = hapticsEnabled
@@ -184,6 +213,9 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         let assetsChanged = self.assets.map(\.localIdentifier) != assets.map(\.localIdentifier)
         let previousSelectionID = self.selectedAssetID
         let selectionChanged = previousSelectionID != selectedAssetID
+        if selectionChanged, viewingScale != 1 {
+            resetViewingState(animated: false)
+        }
         let requestedAnimation = selectionAnimationRequest.flatMap { request in
             request.token != lastSelectionAnimationToken
                 && request.assetIdentifier == selectedAssetID ? request : nil
@@ -239,6 +271,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
 
     func tearDown() {
         animator?.stopAnimation(true)
+        inspectionAnimator?.stopAnimation(true)
         animator = nil
         session.cancelTransition()
         cardViews.values.forEach { $0.tearDown() }
@@ -246,29 +279,140 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         finishTransitionForNewGestureIfNeeded()
+        if gestureRecognizer is UIPinchGestureRecognizer || gestureRecognizer is UITapGestureRecognizer {
+            return !isTransitioning && currentIndex != nil
+        }
         return !isTransitioning && currentPageIndex != nil
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIPinchGestureRecognizer
+    }
+
+    @objc private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .recognized,
+              !isTransitioning,
+              let currentIndex,
+              assets.indices.contains(currentIndex) else { return }
+        let asset = assets[currentIndex]
+        let identifier = asset.localIdentifier
+        if favoriteIdentifiers.contains(identifier) {
+            favoriteIdentifiers.remove(identifier)
+        } else {
+            favoriteIdentifiers.insert(identifier)
+        }
+        updatePageContent()
+        if hapticsEnabled {
+            favoriteHaptic.prepare()
+            favoriteHaptic.impactOccurred()
+        }
+        onToggleFavorite?(asset, currentIndex)
+    }
+
+    @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+        guard !isTransitioning, currentIndex != nil else { return }
+        switch recognizer.state {
+        case .began:
+            inspectionAnimator?.stopAnimation(true)
+            resetMotion()
+            pinchStartScale = viewingScale
+            pinchStartTranslation = viewingTranslation
+            pinchStartLocation = recognizer.location(in: view)
+        case .changed:
+            let targetScale = min(max(pinchStartScale * recognizer.scale, 0.55), 4)
+            let location = recognizer.location(in: view)
+            let startRelative = CGPoint(
+                x: pinchStartLocation.x - view.bounds.midX,
+                y: pinchStartLocation.y - view.bounds.midY
+            )
+            let currentRelative = CGPoint(
+                x: location.x - view.bounds.midX,
+                y: location.y - view.bounds.midY
+            )
+            let ratio = targetScale / max(pinchStartScale, 0.001)
+            let followingTranslation = CGPoint(
+                x: pinchStartTranslation.x + currentRelative.x - startRelative.x
+                    + startRelative.x * (1 - ratio),
+                y: pinchStartTranslation.y + currentRelative.y - startRelative.y
+                    + startRelative.y * (1 - ratio)
+            )
+            if targetScale < 1 {
+                viewingScale = targetScale
+                viewingTranslation = followingTranslation
+                setImmersive(false)
+            } else {
+                viewingScale = targetScale
+                viewingTranslation = clampedViewingTranslation(
+                    followingTranslation,
+                    scale: targetScale
+                )
+                setImmersive(targetScale > 1.03)
+            }
+            applyTransformsWithoutAnimation()
+        case .ended:
+            if viewingScale < 0.78 {
+                setImmersive(false)
+                onShowTimeline?()
+                DispatchQueue.main.async { [weak self] in self?.resetViewingState(animated: false) }
+            } else if viewingScale < 1.03 {
+                resetViewingState(animated: true)
+            } else {
+                viewingScale = min(viewingScale, 4)
+                viewingTranslation = clampedViewingTranslation(viewingTranslation, scale: viewingScale)
+                setImmersive(true)
+                applyTransformsWithoutAnimation()
+            }
+        case .cancelled, .failed:
+            if viewingScale < 1.03 {
+                resetViewingState(animated: true)
+            }
+        default:
+            break
+        }
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
             guard !isTransitioning else { return }
+            if viewingScale > 1 {
+                inspectionPanStart = viewingTranslation
+                return
+            }
             deliveredHapticDirection = nil
             committedActionDirection = nil
             prepareHaptics()
         case .changed:
             guard !isTransitioning else { return }
+            if viewingScale > 1 {
+                let value = recognizer.translation(in: view)
+                viewingTranslation = clampedViewingTranslation(
+                    CGPoint(x: inspectionPanStart.x + value.x, y: inspectionPanStart.y + value.y),
+                    scale: viewingScale
+                )
+                applyTransformsWithoutAnimation()
+                return
+            }
             let value = recognizer.translation(in: view)
             if axis == .undetermined {
                 let horizontal = abs(value.x)
                 let vertical = abs(value.y)
                 guard max(horizontal, vertical) > 10 else { return }
                 axis = vertical > horizontal * 1.15 ? .vertical : .horizontal
+                if axis == .vertical { verticalIntent = value.y < 0 ? -1 : 1 }
             }
             applyInteractiveTranslation(value)
-            updateThresholdHaptic(with: value)
+            updateThresholdHaptic(with: translation)
         case .ended:
             guard !isTransitioning else { return }
+            if viewingScale > 1 {
+                viewingTranslation = clampedViewingTranslation(viewingTranslation, scale: viewingScale)
+                applyTransformsWithoutAnimation()
+                return
+            }
             if axis != .undetermined {
                 applyInteractiveTranslation(recognizer.translation(in: view))
             }
@@ -282,9 +426,20 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     }
 
     private func applyInteractiveTranslation(_ value: CGPoint) {
-        translation = axis == .horizontal
-            ? CGPoint(x: value.x, y: 0)
-            : CGPoint(x: 0, y: value.y)
+        if axis == .horizontal {
+            translation = CGPoint(x: value.x, y: 0)
+        } else {
+            let lockedY: CGFloat
+            if let verticalIntent {
+                lockedY = CleaningMotionGeometry.lockedVerticalComponent(
+                    value.y,
+                    intent: verticalIntent
+                )
+            } else {
+                lockedY = value.y
+            }
+            translation = CGPoint(x: 0, y: lockedY)
+        }
         deletionProgress = axis == .vertical
             ? CleaningMotionGeometry.deletionProgress(
                 verticalTranslation: translation.y,
@@ -349,15 +504,19 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     }
 
     private func finishVerticalGesture(velocity: CGFloat) {
-        let projected = translation.y + velocity * 0.2
-        let resolved = projected == 0 ? translation.y : projected
+        let direction = verticalIntent ?? (translation.y < 0 ? -1 : 1)
+        let lockedVelocity = CleaningMotionGeometry.lockedVerticalComponent(
+            velocity,
+            intent: direction
+        )
+        let projected = translation.y + lockedVelocity * 0.2
         let shouldCommit = abs(translation.y) >= actionThreshold
             || abs(projected) >= actionThreshold * 1.35
         guard shouldCommit else {
             resetGesture(animated: true)
             return
         }
-        if resolved < 0 {
+        if direction < 0 {
             commitDeletion(releaseVelocity: velocity)
         } else if downwardSwipeAction == .addToAlbum {
             commitAddToAlbum()
@@ -544,8 +703,41 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         }
     }
 
+    private func resetViewingState(animated: Bool) {
+        inspectionAnimator?.stopAnimation(true)
+        viewingScale = 1
+        viewingTranslation = .zero
+        setImmersive(false)
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            applyTransformsWithoutAnimation()
+            return
+        }
+        let animator = UIViewPropertyAnimator(duration: 0.28, dampingRatio: 0.88) {
+            self.applyTransforms()
+        }
+        inspectionAnimator = animator
+        animator.startAnimation()
+    }
+
+    private func setImmersive(_ immersive: Bool) {
+        guard immersive != isImmersive else { return }
+        isImmersive = immersive
+        onImmersiveChange?(immersive)
+    }
+
+    private func clampedViewingTranslation(_ value: CGPoint, scale: CGFloat) -> CGPoint {
+        guard scale > 1 else { return .zero }
+        let horizontalLimit = view.bounds.width * (scale - 1) * 0.5 + 44
+        let verticalLimit = view.bounds.height * (scale - 1) * 0.5 + 44
+        return CGPoint(
+            x: min(max(value.x, -horizontalLimit), horizontalLimit),
+            y: min(max(value.y, -verticalLimit), verticalLimit)
+        )
+    }
+
     private func resetMotion() {
         axis = .undetermined
+        verticalIntent = nil
         translation = .zero
         deletionProgress = 0
         isDeleting = false
@@ -667,14 +859,19 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                 page.layer.zPosition = 20
                 page.alpha = 0.84 + 0.16 * undoAnimationProgress
             } else {
+                let isCurrent = index == currentPageIndex
+                let scale = motion.scale * (isCurrent ? viewingScale : 1)
+                let viewingOffset = isCurrent ? viewingTranslation : .zero
                 page.layer.setAffineTransform(
                     CGAffineTransform(
-                        translationX: motion.translation.x,
-                        y: motion.translation.y
-                    ).scaledBy(x: motion.scale, y: motion.scale)
+                        translationX: motion.translation.x + viewingOffset.x,
+                        y: motion.translation.y + viewingOffset.y
+                    ).scaledBy(x: scale, y: scale)
                 )
                 page.layer.zPosition = motion.zPosition
-                page.alpha = 1
+                page.alpha = isCurrent && viewingScale < 1
+                    ? 0.55 + 0.45 * viewingScale
+                    : 1
             }
             let actionTranslation = committedActionDirection.map { $0 * actionThreshold }
                 ?? (axis == .vertical ? translation.y : 0)

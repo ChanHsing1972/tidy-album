@@ -9,6 +9,7 @@ final class CleaningCardPageView: UIView {
     private let shadowView = UIView()
     private let clippingView = UIView()
     private let mediaView = CleaningAssetMediaView()
+    private let actionTintView = UIView()
     private let borderLayer = CAShapeLayer()
     private let actionView = CleaningActionIndicatorView()
     private var asset: PHAsset?
@@ -33,6 +34,9 @@ final class CleaningCardPageView: UIView {
         clippingView.clipsToBounds = true
         shadowView.addSubview(clippingView)
         clippingView.addSubview(mediaView)
+        actionTintView.isUserInteractionEnabled = false
+        actionTintView.alpha = 0
+        clippingView.addSubview(actionTintView)
 
         borderLayer.fillColor = UIColor.clear.cgColor
         borderLayer.strokeColor = UIColor.white.withAlphaComponent(0.16).cgColor
@@ -60,6 +64,7 @@ final class CleaningCardPageView: UIView {
         shadowView.frame = cardFrame
         clippingView.frame = shadowView.bounds
         mediaView.frame = clippingView.bounds
+        actionTintView.frame = clippingView.bounds
         borderLayer.frame = clippingView.bounds
         borderLayer.path = UIBezierPath(
             roundedRect: clippingView.bounds,
@@ -108,9 +113,20 @@ final class CleaningCardPageView: UIView {
     ) {
         guard translation != 0 else {
             actionView.setProgress(0, kind: .delete)
+            actionTintView.alpha = 0
             return
         }
         let progress = min(abs(translation) / 92, 1)
+        let tintColor: UIColor
+        if translation < 0 {
+            tintColor = .systemRed
+        } else if downwardAction == .addToAlbum {
+            tintColor = .systemBlue
+        } else {
+            tintColor = .systemPink
+        }
+        actionTintView.backgroundColor = tintColor
+        actionTintView.alpha = 0.2 * progress
         actionView.setProgress(
             progress,
             kind: translation < 0
