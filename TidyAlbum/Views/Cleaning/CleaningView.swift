@@ -19,9 +19,13 @@ struct CleaningView: View {
     @State private var isPreparingShare = false
     @State private var isUndoing = false
     @State private var pendingUndoCount = 0
+    @State private var activeUndoAnimationToken: UUID?
     @State private var isExiting = false
     @State private var showsTimeline = false
+    @State private var isTimelinePreviewVisible = false
+    @State private var timelineAssets: [PHAsset] = []
     @State private var isInspecting = false
+    @State private var completionControlsHidden = false
     @State private var showsShareError = false
     @State private var renderingSession = CleaningUIKitSession()
     @State private var selectionAnimationRequest: CleaningSelectionAnimationRequest?
@@ -35,6 +39,22 @@ struct CleaningView: View {
         return manager.sessionAssets[currentIndex]
     }
 
+    private var availableTimelineAssets: [PHAsset] {
+        let trashIDs = Set(manager.trashBin.map(\.localIdentifier))
+        return timelineAssets.filter { !trashIDs.contains($0.localIdentifier) }
+    }
+
+    private var timelineTargetColumn: Int {
+        CleaningTimelineLayout.targetColumn(
+            in: availableTimelineAssets,
+            selectedAssetID: selectedAssetID
+        )
+    }
+
+    private var hidesCleaningChrome: Bool {
+        isInspecting || isTimelinePreviewVisible
+    }
+
     var body: some View {
         let _ = inject
         NavigationStack {
@@ -46,6 +66,18 @@ struct CleaningView: View {
                     sessionGroupNumber: manager.sessionGroupNumber
                 )
                     .ignoresSafeArea()
+
+                if isTimelinePreviewVisible || showsTimeline {
+                    CleaningTimelineView(
+                        assets: availableTimelineAssets,
+                        selectedAssetID: selectedAssetID,
+                        settings: settings,
+                        onSelect: selectTimelineAsset
+                    )
+                    .transition(.opacity)
+                    .allowsHitTesting(showsTimeline)
+                    .zIndex(1)
+                }
 
                 Group {
                     if manager.sessionGroupNumber == 0 && manager.sessionAssets.isEmpty {
@@ -65,25 +97,46 @@ struct CleaningView: View {
                             onDelete: manager.markForDeletion,
                             onToggleFavorite: manager.markFavorite,
                             onAddToAlbum: { albumSelection = AlbumAssetSelection(asset: $0) },
-                            onShowTimeline: { showsTimeline = true },
-                            onImmersiveChange: { immersive in
-                                withAnimation(.easeInOut(duration: 0.2)) { isInspecting = immersive }
+                            timelineTargetColumn: timelineTargetColumn,
+                            onTimelinePreviewChange: { visible in
+                                withAnimation(.easeOut(duration: 0.14)) {
+                                    isTimelinePreviewVisible = visible
+                                }
                             },
+                            onShowTimeline: {
+                                withAnimation(.easeOut(duration: 0.12)) {
+                                    showsTimeline = true
+                                    isTimelinePreviewVisible = false
+                                }
+                            },
+                            onImmersiveChange: { immersive in
+                                withAnimation(.easeInOut(duration: 0.16)) { isInspecting = immersive }
+                            },
+                            onCompletionControlsHiddenChange: { hidden in
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    completionControlsHidden = hidden
+                                }
+                            },
+                            onSelectionAnimationFinished: selectionAnimationFinished,
                             onNextGroup: loadNextGroup,
                             onEnd: finishSession
                         )
                     }
                 }
+                .opacity(showsTimeline ? 0 : 1)
+                .allowsHitTesting(!showsTimeline)
+                .zIndex(2)
             }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbarBackground(.hidden, for: .bottomBar)
             .toolbar { toolbar }
-            .toolbar(isInspecting ? .hidden : .visible, for: .navigationBar)
-            .toolbar(isInspecting ? .hidden : .visible, for: .bottomBar)
         }
         .tint(.primary)
-        .statusBarHidden(isInspecting)
         .onAppear { selectInitialAsset() }
+        .task {
+            guard timelineAssets.isEmpty else { return }
+            timelineAssets = await manager.fetchCalendarAssets()
+        }
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings).id(selection.id)
         }
@@ -96,16 +149,6 @@ struct CleaningView: View {
         .sheet(item: $activityItems) { items in
             ActivityView(items: items.values)
                 .presentationDetents([.medium, .large])
-        }
-        .fullScreenCover(isPresented: $showsTimeline) {
-            CleaningTimelineView(
-                assets: manager.sessionAssets,
-                selectedAssetID: selectedAssetID,
-                settings: settings
-            ) { identifier in
-                selectedAssetID = identifier
-                showsTimeline = false
-            }
         }
         .alert(settings.t("Unable to Share"), isPresented: $showsShareError) {
             Button(settings.t("Done"), role: .cancel) {}
@@ -140,51 +183,69 @@ struct CleaningView: View {
     // MARK: Toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button(action: exitSession) {
-                Label("Exit", systemImage: "xmark")
+        if showsTimeline {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: closeTimeline) {
+                    Label("Close", systemImage: "xmark")
+                }
+                .accessibilityLabel(settings.t("Close"))
             }
-            .accessibilityLabel(settings.t("Close"))
-        }
-        ToolbarItem(placement: .principal) { sessionProgress }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { showsTrash = true } label: {
-                Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+            ToolbarItem(placement: .principal) {
+                Text(settings.t("Photos by Date"))
+                    .font(.headline)
             }
-            .badge(manager.trashBin.count)
-            .accessibilityLabel(settings.t("Trash"))
-        }
-        ToolbarItemGroup(placement: .bottomBar) {
-            Button { requestUndo() } label: {
-                Label("Undo", systemImage: "arrow.uturn.backward")
-                    .labelStyle(.iconOnly)
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: exitSession) {
+                    Label("Exit", systemImage: "xmark")
+                }
+                .opacity(hidesCleaningChrome ? 0 : 1)
+                .allowsHitTesting(!hidesCleaningChrome)
+                .accessibilityLabel(settings.t("Close"))
             }
-            .disabled(!manager.canUndo)
-            .opacity(manager.canUndo ? 1 : 0.35)
-            .accessibilityLabel(settings.t("Undo"))
-            Spacer()
-            CleaningAssetInfoIslandButton(
-                asset: currentAsset,
-                settings: settings,
-                isFavorite: currentAsset.map(manager.isFavorite) ?? false,
-                accessibilityLabel: settings.t("Details")
-            ) { asset in
-                detailsSelection = AssetSheetSelection(asset: asset)
+            ToolbarItem(placement: .principal) {
+                sessionProgress
+                    .opacity(hidesCleaningChrome ? 0 : 1)
             }
-            Spacer()
-            Button(action: prepareShare) {
-                Group {
-                    if isPreparingShare { ProgressView().controlSize(.small) }
-                    else {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                            .labelStyle(.iconOnly)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showsTrash = true } label: {
+                    Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+                }
+                .badge(manager.trashBin.count)
+                .opacity(hidesCleaningChrome ? 0 : 1)
+                .allowsHitTesting(!hidesCleaningChrome)
+                .accessibilityLabel(settings.t("Trash"))
+            }
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button { requestUndo() } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .disabled(!manager.canUndo)
+                .opacity(hidesCleaningChrome ? 0 : (manager.canUndo ? 1 : 0.35))
+                .allowsHitTesting(!hidesCleaningChrome)
+                .accessibilityLabel(settings.t("Undo"))
+                Spacer()
+                CleaningAssetInfoIslandButton(
+                    asset: completionControlsHidden || hidesCleaningChrome ? nil : currentAsset,
+                    settings: settings,
+                    isFavorite: currentAsset.map(manager.isFavorite) ?? false,
+                    accessibilityLabel: settings.t("Details")
+                ) { asset in
+                    detailsSelection = AssetSheetSelection(asset: asset)
+                }
+                Spacer()
+                Button(action: prepareShare) {
+                    if isPreparingShare {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
                     }
                 }
+                .disabled(currentAsset == nil || isPreparingShare)
+                .opacity(hidesCleaningChrome ? 0 : (currentAsset == nil ? 0.35 : 1))
+                .allowsHitTesting(!hidesCleaningChrome)
+                .accessibilityLabel(settings.t("Share"))
             }
-            
-            .disabled(currentAsset == nil || isPreparingShare)
-            .opacity(currentAsset == nil ? 0.35 : 1)
-            .accessibilityLabel(settings.t("Share"))
         }
     }
 
@@ -214,27 +275,61 @@ struct CleaningView: View {
     private func requestUndo() {
         guard manager.canUndo else { return }
         pendingUndoCount += 1
-        guard !isUndoing else { return }
+        processNextUndoIfNeeded()
+    }
+
+    private func processNextUndoIfNeeded() {
+        guard !isUndoing, pendingUndoCount > 0 else { return }
+        pendingUndoCount -= 1
         isUndoing = true
         Task {
-            while pendingUndoCount > 0 {
-                pendingUndoCount -= 1
-                guard let result = await manager.undoLastAction() else {
-                    pendingUndoCount = 0
-                    break
-                }
-                if result.restoresDeletedAsset {
-                    selectionAnimationRequest = CleaningSelectionAnimationRequest(
-                        token: UUID(),
-                        assetIdentifier: result.assetIdentifier
-                    )
-                }
-                selectedAssetID = result.assetIdentifier
-                try? await Task.sleep(
-                    for: result.restoresDeletedAsset ? .milliseconds(440) : .milliseconds(340)
-                )
+            guard let result = await manager.undoLastAction() else {
+                pendingUndoCount = 0
+                isUndoing = false
+                return
             }
-            isUndoing = false
+            let token = UUID()
+            activeUndoAnimationToken = token
+            selectionAnimationRequest = CleaningSelectionAnimationRequest(
+                token: token,
+                assetIdentifier: result.assetIdentifier,
+                style: result.restoresDeletedAsset ? .deletionRestore : .reviewReveal
+            )
+            selectedAssetID = result.assetIdentifier
+
+            // The controller normally acknowledges the exact animator token.
+            // Keep a timeout only as a lifecycle fallback so dismissing or
+            // replacing the stage cannot leave the undo queue permanently stuck.
+            Task {
+                try? await Task.sleep(for: .milliseconds(700))
+                guard activeUndoAnimationToken == token else { return }
+                selectionAnimationFinished(token)
+            }
+        }
+    }
+
+    private func selectionAnimationFinished(_ token: UUID) {
+        guard activeUndoAnimationToken == token else { return }
+        activeUndoAnimationToken = nil
+        if selectionAnimationRequest?.token == token {
+            selectionAnimationRequest = nil
+        }
+        isUndoing = false
+        processNextUndoIfNeeded()
+    }
+
+    private func selectTimelineAsset(_ asset: PHAsset) {
+        if !manager.sessionAssets.contains(where: { $0.localIdentifier == asset.localIdentifier }) {
+            manager.beginSession(around: asset, from: availableTimelineAssets)
+        }
+        selectedAssetID = asset.localIdentifier
+        closeTimeline()
+    }
+
+    private func closeTimeline() {
+        withAnimation(.easeInOut(duration: 0.16)) {
+            showsTimeline = false
+            isTimelinePreviewVisible = false
         }
     }
 
@@ -360,7 +455,11 @@ private struct CleaningAssetInfoIslandButton: View {
                 .animation(.easeInOut(duration: 0.22), value: isVisible)
             }
         }
-        .frame(width: 210)
+        // Release toolbar layout space as soon as completion begins while the
+        // cached island continues drawing outside this zero-width slot for its
+        // opacity fade. This prevents the system from overflowing Share into
+        // an ellipsis menu on compact widths.
+        .frame(width: asset == nil ? 0 : 210)
         .onChange(of: asset?.localIdentifier, initial: true) { _, _ in
             if let asset {
                 // Returning from the completion page keeps the previous asset

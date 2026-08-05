@@ -14,6 +14,9 @@ final class CleaningCardPageView: UIView {
     private let actionView = CleaningActionIndicatorView()
     private var asset: PHAsset?
     private var isFavorite = false
+    private var timelineTransitionProgress: CGFloat = 0
+    private var timelineTargetSide: CGFloat = 0
+    private var timelineTargetCenterX: CGFloat?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -55,11 +58,25 @@ final class CleaningCardPageView: UIView {
         super.layoutSubviews()
         guard let asset else { return }
         let mediaSize = fittedSize(for: asset, inside: bounds.size)
-        let cardFrame = CGRect(
+        let fittedFrame = CGRect(
             x: (bounds.width - mediaSize.width) * 0.5,
             y: (bounds.height - mediaSize.height) * 0.5 - 28,
             width: mediaSize.width,
             height: mediaSize.height
+        ).integral
+        let targetSide = timelineTargetSide > 0 ? timelineTargetSide : fittedFrame.width
+        let targetFrame = CGRect(
+            x: (timelineTargetCenterX ?? bounds.midX) - targetSide * 0.5,
+            y: bounds.midY - targetSide * 0.5,
+            width: targetSide,
+            height: targetSide
+        )
+        let progress = min(max(timelineTransitionProgress, 0), 1)
+        let cardFrame = CGRect(
+            x: fittedFrame.minX + (targetFrame.minX - fittedFrame.minX) * progress,
+            y: fittedFrame.minY + (targetFrame.minY - fittedFrame.minY) * progress,
+            width: fittedFrame.width + (targetFrame.width - fittedFrame.width) * progress,
+            height: fittedFrame.height + (targetFrame.height - fittedFrame.height) * progress
         ).integral
         shadowView.frame = cardFrame
         clippingView.frame = shadowView.bounds
@@ -104,6 +121,23 @@ final class CleaningCardPageView: UIView {
 
     func setFavorite(_ isFavorite: Bool) {
         self.isFavorite = isFavorite
+    }
+
+    func setTimelineTransition(
+        progress: CGFloat,
+        targetSide: CGFloat,
+        targetCenterX: CGFloat
+    ) {
+        let progress = min(max(progress, 0), 1)
+        guard abs(timelineTransitionProgress - progress) > 0.001
+                || abs(timelineTargetSide - targetSide) > 0.5
+                || abs((timelineTargetCenterX ?? targetCenterX) - targetCenterX) > 0.5 else { return }
+        timelineTransitionProgress = progress
+        timelineTargetSide = targetSide
+        timelineTargetCenterX = targetCenterX
+        mediaView.setInteractiveResize(progress > 0)
+        setNeedsLayout()
+        layoutIfNeeded()
     }
 
     func setActionProgress(
@@ -224,6 +258,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
     private var hasFinalLivePhoto = false
     private var isLivePhotoPlaying = false
     private var autoPlayLivePhotos = true
+    private var isInteractivelyResizing = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -288,6 +323,12 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         }
     }
 
+    func setInteractiveResize(_ resizing: Bool) {
+        guard resizing != isInteractivelyResizing else { return }
+        isInteractivelyResizing = resizing
+        if !resizing { requestPosterIfNeeded() }
+    }
+
     func tearDown() {
         tearDownAsset()
         asset = nil
@@ -296,7 +337,10 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
     }
 
     private func requestPosterIfNeeded() {
-        guard let asset, bounds.width > 0, bounds.height > 0 else { return }
+        guard !isInteractivelyResizing,
+              let asset,
+              bounds.width > 0,
+              bounds.height > 0 else { return }
         let scale = window?.screen.scale ?? UIScreen.main.scale
         let targetSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         let key = "\(asset.localIdentifier)-\(Int(targetSize.width))x\(Int(targetSize.height))"

@@ -17,9 +17,27 @@ struct CleaningPageMotion: Equatable {
     let zPosition: CGFloat
 }
 
+enum CleaningPinchIntent: Equatable {
+    case undetermined
+    case timeline
+    case inspection
+}
+
 enum CleaningMotionGeometry {
     static func lockedVerticalComponent(_ value: CGFloat, intent: CGFloat) -> CGFloat {
         intent < 0 ? min(value, 0) : max(value, 0)
+    }
+
+    static func resolvedPinchIntent(
+        current: CleaningPinchIntent,
+        startingScale: CGFloat,
+        gestureScale: CGFloat
+    ) -> CleaningPinchIntent {
+        if current != .undetermined { return current }
+        if startingScale > 1.03 { return .inspection }
+        if gestureScale < 0.97 { return .timeline }
+        if gestureScale > 1.03 { return .inspection }
+        return .undetermined
     }
 
     static func deletionTarget(currentIndex: Int, assetCount: Int) -> CleaningDeletionGeometry? {

@@ -1,63 +1,105 @@
 import Photos
 import SwiftUI
 
+enum CleaningTimelineLayout {
+    static let columnCount = 3
+    static let spacing: CGFloat = 2
+
+    static func targetColumn(in assets: [PHAsset], selectedAssetID: String) -> Int {
+        guard let selected = assets.first(where: { $0.localIdentifier == selectedAssetID }) else {
+            return 1
+        }
+        let calendar = Calendar.current
+        let selectedComponents = selected.creationDate.map {
+            calendar.dateComponents([.year, .month], from: $0)
+        } ?? DateComponents()
+        let sectionAssets = assets.filter { asset in
+            let components = asset.creationDate.map {
+                calendar.dateComponents([.year, .month], from: $0)
+            } ?? DateComponents()
+            return components.year == selectedComponents.year
+                && components.month == selectedComponents.month
+        }.sorted {
+            ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+        }
+        let index = sectionAssets.firstIndex {
+            $0.localIdentifier == selectedAssetID
+        } ?? 1
+        return index % columnCount
+    }
+}
+
 struct CleaningTimelineView: View {
     let assets: [PHAsset]
     let selectedAssetID: String
     @ObservedObject var settings: SettingsStore
-    let onSelect: (String) -> Void
+    let onSelect: (PHAsset) -> Void
 
-    @Environment(\.dismiss) private var dismiss
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+    private let columns = Array(
+        repeating: GridItem(.flexible(), spacing: CleaningTimelineLayout.spacing),
+        count: CleaningTimelineLayout.columnCount
+    )
 
     var body: some View {
-        NavigationStack {
+        ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     ForEach(sections) { section in
                         Section {
-                            LazyVGrid(columns: columns, spacing: 2) {
+                            LazyVGrid(columns: columns, spacing: CleaningTimelineLayout.spacing) {
                                 ForEach(section.assets, id: \.localIdentifier) { asset in
                                     assetButton(asset)
+                                        .id(asset.localIdentifier)
                                 }
                             }
                         } header: {
-                            Text(section.title)
-                                .font(.title3.bold())
-                                .padding(.horizontal, 14)
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(section.title)
+                                    .font(.title3.bold())
+                                Spacer()
+                                Text(section.assets.count.formatted())
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 14)
                         }
                     }
                 }
-                .padding(.top, 10)
-                .padding(.bottom, 28)
+                .padding(.top, 12)
+                .padding(.bottom, 80)
             }
+            .scrollIndicators(.hidden)
             .background(Color(uiColor: .systemBackground))
-            .navigationTitle(settings.t("Photos by Date"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Label("Close", systemImage: "xmark")
-                    }
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel(settings.t("Close"))
-                }
-            }
             .accessibilityIdentifier("tidyalbum.cleaning-timeline")
+            .onAppear { scrollToSelection(using: proxy, animated: false) }
+            .onChange(of: selectedAssetID) { _, _ in
+                scrollToSelection(using: proxy, animated: true)
+            }
         }
     }
 
     private func assetButton(_ asset: PHAsset) -> some View {
-        Button { onSelect(asset.localIdentifier) } label: {
-            AssetMediaView(asset: asset, contentMode: .fill, showsVideoBadge: false)
+        Button { onSelect(asset) } label: {
+            ZStack {
+                Color(uiColor: .secondarySystemBackground)
+                AssetMediaView(asset: asset, contentMode: .fill, showsVideoBadge: false)
+            }
                 .aspectRatio(1, contentMode: .fit)
+                .clipped()
+                .overlay {
+                    if asset.localIdentifier == selectedAssetID {
+                        Rectangle()
+                            .stroke(.white, lineWidth: 3)
+                            .padding(2)
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if asset.localIdentifier == selectedAssetID {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title3)
                             .symbolRenderingMode(.palette)
                             .foregroundStyle(.white, Color.accentColor)
-                            .padding(6)
+                            .padding(7)
                     }
                 }
                 .contentShape(Rectangle())
@@ -79,7 +121,9 @@ struct CleaningTimelineView: View {
                 id: "\(components.year ?? 0)-\(components.month ?? 0)",
                 date: date,
                 title: sectionTitle(for: date),
-                assets: assets.sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
+                assets: assets.sorted {
+                    ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+                }
             )
         }.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
@@ -95,6 +139,19 @@ struct CleaningTimelineView: View {
     private func accessibilityLabel(for asset: PHAsset) -> String {
         guard let date = asset.creationDate else { return settings.t("Unknown Date") }
         return settings.fullDate(date)
+    }
+
+    private func scrollToSelection(using proxy: ScrollViewProxy, animated: Bool) {
+        guard assets.contains(where: { $0.localIdentifier == selectedAssetID }) else { return }
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    proxy.scrollTo(selectedAssetID, anchor: .center)
+                }
+            } else {
+                proxy.scrollTo(selectedAssetID, anchor: .center)
+            }
+        }
     }
 }
 

@@ -38,7 +38,7 @@ enum AppStrings {
         "Start a cleaning session to see your progress here.": "完成一次清理后，这里会展示你的成果。",
         "General": "通用", "Language": "语言", "Haptic Feedback": "触觉反馈", "Auto-Play Live Photos": "自动播放实况照片", "Cleaning Preferences": "清理偏好", "Swipe Down Action": "下滑动作", "Add to Album": "加入相簿",
         "Delete Behavior": "删除方式", "App Trash First": "先放入 App 待删除", "Move to System Trash": "直接移入系统废纸篓",
-        "Photo Order": "照片顺序", "Newest First": "按日期倒序", "Random": "随机抽取", "About & Support": "关于",
+        "Photo Order": "照片顺序", "Newest First": "按时间倒序", "Oldest First": "按时间正序", "Largest First": "按文件大小", "Random": "随机抽取", "About & Support": "关于",
         "Filter Viewed Items": "过滤已查看项目", "Viewed Items": "已查看项目", "Clear Viewed History": "清空已查看记录",
         "Clear Viewed History?": "清空已查看记录？", "Previously reviewed items will appear in random sessions again.": "此前看过的项目将重新出现在随机清理中。",
         "inin previous random sessions.": "随机清理时不再显示此前已经查看过的项目。", "All Items Reviewed": "已查看全部项目",

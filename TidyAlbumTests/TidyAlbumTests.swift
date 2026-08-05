@@ -40,6 +40,11 @@ struct TidyAlbumTests {
         #expect(restored.progressDisplayMode == .barOnly)
         #expect(restored.cleaningGroupSize == .extraLarge)
         #expect(restored.downwardSwipeAction == .addToAlbum)
+
+        settings.sortOrder = .oldestFirst
+        #expect(SettingsStore(defaults: defaults).sortOrder == .oldestFirst)
+        settings.sortOrder = .largestFirst
+        #expect(SettingsStore(defaults: defaults).sortOrder == .largestFirst)
     }
 
     @Test @MainActor
@@ -148,6 +153,29 @@ struct TidyAlbumTests {
         #expect(CleaningMotionGeometry.lockedVerticalComponent(80, intent: -1) == 0)
         #expect(CleaningMotionGeometry.lockedVerticalComponent(120, intent: 1) == 120)
         #expect(CleaningMotionGeometry.lockedVerticalComponent(-80, intent: 1) == 0)
+    }
+
+    @Test @MainActor
+    func inspectionPinchCannotReverseIntoTimelineDuringOneGesture() {
+        let startedZoomed = CleaningMotionGeometry.resolvedPinchIntent(
+            current: .undetermined,
+            startingScale: 2,
+            gestureScale: 1
+        )
+        let pinchedBack = CleaningMotionGeometry.resolvedPinchIntent(
+            current: startedZoomed,
+            startingScale: 2,
+            gestureScale: 0.4
+        )
+        let timeline = CleaningMotionGeometry.resolvedPinchIntent(
+            current: .undetermined,
+            startingScale: 1,
+            gestureScale: 0.8
+        )
+
+        #expect(startedZoomed == .inspection)
+        #expect(pinchedBack == .inspection)
+        #expect(timeline == .timeline)
     }
 
     @Test @MainActor

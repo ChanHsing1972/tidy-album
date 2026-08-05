@@ -195,18 +195,17 @@ final class PhotoManager: NSObject, ObservableObject {
     func beginSession() {
         let trashIDs = Set(trashBin.map(\.localIdentifier))
         var available = assets.filter { !trashIDs.contains($0.localIdentifier) }
-        if settings.sortOrder == .random {
-            if settings.excludesViewedInRandomMode {
-                available.removeAll { persistedViewedIdentifiers.contains($0.localIdentifier) }
-            }
-            available.shuffle()
+        if settings.sortOrder == .random, settings.excludesViewedInRandomMode {
+            available.removeAll { persistedViewedIdentifiers.contains($0.localIdentifier) }
         }
         beginSession(with: available)
     }
 
     func beginSession(with requestedAssets: [PHAsset]) {
         let trashIDs = Set(trashBin.map(\.localIdentifier))
-        let available = requestedAssets.filter { !trashIDs.contains($0.localIdentifier) }
+        let available = orderedForCleaning(
+            requestedAssets.filter { !trashIDs.contains($0.localIdentifier) }
+        )
         sessionQueue = available
         sessionCursor = 0
         isSessionActive = true
@@ -219,6 +218,47 @@ final class PhotoManager: NSObject, ObservableObject {
         sessionDeletedIdentifiers.removeAll()
         sessionSummary = CleaningSessionSummary()
         loadNextGroup()
+    }
+
+    func beginSession(around anchor: PHAsset, from requestedAssets: [PHAsset]) {
+        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let chronological = requestedAssets
+            .filter { !trashIDs.contains($0.localIdentifier) }
+            .sorted {
+                ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+            }
+        guard let anchorIndex = chronological.firstIndex(where: {
+            $0.localIdentifier == anchor.localIdentifier
+        }) else {
+            beginSession(with: [anchor])
+            return
+        }
+        let count = min(settings.cleaningGroupSize.rawValue, chronological.count)
+        let idealLowerBound = anchorIndex - count / 2
+        let lowerBound = min(max(idealLowerBound, 0), chronological.count - count)
+        beginSession(with: Array(chronological[lowerBound..<(lowerBound + count)]))
+    }
+
+    private func orderedForCleaning(_ candidates: [PHAsset]) -> [PHAsset] {
+        switch settings.sortOrder {
+        case .newestFirst:
+            return candidates.sorted {
+                ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+            }
+        case .oldestFirst:
+            return candidates.sorted {
+                ($0.creationDate ?? .distantFuture) < ($1.creationDate ?? .distantFuture)
+            }
+        case .largestFirst:
+            return candidates.sorted { lhs, rhs in
+                let lhsBytes = estimatedBytes(for: lhs)
+                let rhsBytes = estimatedBytes(for: rhs)
+                if lhsBytes != rhsBytes { return lhsBytes > rhsBytes }
+                return (lhs.creationDate ?? .distantPast) > (rhs.creationDate ?? .distantPast)
+            }
+        case .random:
+            return candidates.shuffled()
+        }
     }
 
     @discardableResult
@@ -396,7 +436,9 @@ final class PhotoManager: NSObject, ObservableObject {
                     (filterCounts[.favorites] ?? 0) + (previous ? 1 : -1)
                 )
             }
-            try? await photoService.setFavorite(previous, for: action.asset)
+            Task { [photoService] in
+                try? await photoService.setFavorite(previous, for: action.asset)
+            }
         }
         return UndoResult(
             assetIdentifier: action.asset.localIdentifier,

@@ -106,6 +106,10 @@ final class TidyAlbumUITests: XCTestCase {
         stage.swipeRight()
         currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
         assertCurrentCardIsAligned(currentCard, in: app)
+        XCTAssertNotNil(
+            firstExistingButton(in: app, labels: ["详情", "Details"], timeout: 1),
+            "The details island did not fade back in after leaving completion"
+        )
         attachScreenshot(named: "Cleaning - Back From Completion", app: app)
     }
 
@@ -143,6 +147,22 @@ final class TidyAlbumUITests: XCTestCase {
             timeout: 3
         ))
         settingsTab.tap()
+        let photoOrder = app.descendants(matching: .any)
+            .matching(identifier: "tidyalbum.settings.photo-order")
+            .firstMatch
+        XCTAssertTrue(photoOrder.waitForExistence(timeout: 3), "Photo Order was not available in Settings")
+        photoOrder.tap()
+        XCTAssertNotNil(
+            firstExistingButton(in: app, labels: ["按时间正序", "Oldest First"], timeout: 2),
+            "Photo Order did not expose chronological ascending order"
+        )
+        let largestFirst = firstExistingButton(
+            in: app,
+            labels: ["按文件大小", "Largest First"],
+            timeout: 2
+        )
+        XCTAssertNotNil(largestFirst, "Photo Order did not expose file-size order")
+        largestFirst?.tap()
         let downwardAction = app.descendants(matching: .any)
             .matching(identifier: "tidyalbum.settings.downward-swipe-action")
             .firstMatch
@@ -218,6 +238,10 @@ final class TidyAlbumUITests: XCTestCase {
             "Pinching outward did not fade the surrounding UI"
         )
         currentCard.pinch(withScale: 0.5, velocity: -1)
+        XCTAssertFalse(
+            timeline.waitForExistence(timeout: 0.5),
+            "Pinching a zoomed image back to fit incorrectly reopened the timeline"
+        )
         XCTAssertNotNil(
             firstExistingButton(in: app, labels: ["详情", "Details"], timeout: 3),
             "Returning to the fitted scale did not restore the surrounding UI"

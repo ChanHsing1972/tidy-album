@@ -36,6 +36,8 @@ enum DeletionMode: String, CaseIterable, Identifiable {
 
 enum PhotoSortOrder: String, CaseIterable, Identifiable {
     case newestFirst
+    case oldestFirst
+    case largestFirst
     case random
 
     var id: String { rawValue }

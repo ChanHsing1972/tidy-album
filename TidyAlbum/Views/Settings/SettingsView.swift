@@ -40,10 +40,13 @@ struct SettingsView: View {
                 Section {
                     Picker(selection: $settings.sortOrder) {
                         Text(settings.t("Newest First")).tag(PhotoSortOrder.newestFirst)
+                        Text(settings.t("Oldest First")).tag(PhotoSortOrder.oldestFirst)
+                        Text(settings.t("Largest First")).tag(PhotoSortOrder.largestFirst)
                         Text(settings.t("Random")).tag(PhotoSortOrder.random)
                     } label: {
                         Label(settings.t("Photo Order"), systemImage: "arrow.up.arrow.down")
                     }
+                    .accessibilityIdentifier("tidyalbum.settings.photo-order")
                     if settings.sortOrder == .random {
                         Toggle(isOn: $settings.excludesViewedInRandomMode) {
                             Label(settings.t("Filter Viewed Items"), systemImage: "eye.slash")
