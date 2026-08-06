@@ -16,9 +16,7 @@ struct PhotoCalendarView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
-                    ProgressView(settings.t("Loading Photos"))
-                } else if years.isEmpty {
+              if years.isEmpty {
                     ContentUnavailableView(
                         settings.t("No Dated Photos"),
                         systemImage: "calendar.badge.exclamationmark"
@@ -83,10 +81,14 @@ struct PhotoCalendarView: View {
             manager.beginSession(with: month.assets)
             showsCleaning = true
         } label: {
-            VStack(spacing: 0) {
+            // 使用 ZStack 将文字悬浮在封面图片上方
+            ZStack(alignment: .bottom) {
+                // 1. 底层：封面照片（填满整个卡片高度）
                 monthArtwork(month)
-                    .frame(height: 96)
+                    .frame(height: 120) // 可根据需要微调高度
                     .clipped()
+
+                // 2. 上层底部：带半透明毛玻璃背景的月份和数量栏
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(month.name)
                         .font(.subheadline.weight(.semibold))
@@ -97,23 +99,23 @@ struct PhotoCalendarView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 12)
-                .frame(height: 44)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .frame(height: 38)
+                // 毛玻璃核心设置：超薄材质 + 微调透明度，透出底图
+                .background(.ultraThinMaterial)
             }
             .frame(maxWidth: .infinity)
             .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(Color.primary.opacity(month.assets.isEmpty ? 0.04 : 0.08), lineWidth: 0.5)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(ApplePressButtonStyle())
         .disabled(month.assets.isEmpty)
         .accessibilityLabel("\(month.name), \(month.assets.count) \(settings.t("Items"))")
     }
-
     @ViewBuilder
     private func monthArtwork(_ month: PhotoMonth) -> some View {
         if let coverAsset = month.assets.first {

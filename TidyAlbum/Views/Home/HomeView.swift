@@ -62,14 +62,16 @@ struct CleanHomeView: View {
 
     private var cleanContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 26) {
                 if manager.isLimited { limitedAccessBanner }
+                reviewStage
+//                libraryOverview
                 collectionSection
             }
             .frame(maxWidth: 760)
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 28)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 32)
             .frame(maxWidth: .infinity)
         }
         .refreshable {
@@ -86,26 +88,88 @@ struct CleanHomeView: View {
         ByteCountFormatter.string(fromByteCount: manager.pendingDeletionBytes, countStyle: .file)
     }
 
-    // MARK: Collections
+    // MARK: Review stage
 
-    private var collectionSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(settings.t("Collections"))
-                        .font(.title2.bold())
+    private var reviewStage: some View {
+        ZStack(alignment: .bottom) {
+            CleaningPreviewMosaic(assets: Array(manager.assets.prefix(4)))
+                .frame(height: 224)
+
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(localizedTitle(for: manager.currentFilter))
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text("\(manager.cleaningCandidateCount.formatted()) \(settings.t("Items"))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 8)
+                Spacer(minLength: 4)
                 Button(action: beginCleaning) {
                     Label(settings.t("Start Cleaning"), systemImage: "play.fill")
                         .font(.subheadline.weight(.semibold))
                 }
-                .buttonStyle(.borderedProminent)
+                .modifier(HomePrimaryButtonStyle())
                 .buttonBorderShape(.capsule)
-                .controlSize(.regular)
+                .disabled(!manager.canBeginSession)
                 .accessibilityValue("\(manager.cleaningCandidateCount) \(settings.t("Items"))")
             }
+            .padding(.horizontal, 16)
+            .frame(height: 64)
+            .background(.ultraThinMaterial) 
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.primary.opacity(0.04), lineWidth: 0.5)
+        }
+        .accessibilityElement(children: .contain)
+    }
 
+    private var libraryOverview: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(settings.t("Library Overview"))
+                .font(.headline)
+            HStack(alignment: .top, spacing: 0) {
+                overviewMetric(
+                    value: libraryCount.formatted(),
+                    title: settings.t("Photos and videos")
+                )
+                Divider().frame(height: 48)
+                overviewMetric(
+                    value: manager.trashBin.count.formatted(),
+                    title: settings.t("Pending deletion")
+                )
+                Divider().frame(height: 48)
+                overviewMetric(
+                    value: formattedPendingBytes,
+                    title: settings.t("Space Selected")
+                )
+            }
+        }
+    }
+
+    private func overviewMetric(value: String, title: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.title3.bold().monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .contentTransition(.numericText())
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Collections
+
+    private var collectionSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
             if manager.currentFilter == .similar, let progress = manager.similarityProgress {
                 ProgressView(value: progress) {
                     Text(settings.t("Finding Similar Photos"))
@@ -133,15 +197,6 @@ struct CleanHomeView: View {
                 }
             }
         }
-    }
-
-    private var collectionActionSubtitle: String {
-        if manager.cleaningCandidateCount == 0,
-           settings.sortOrder == .random,
-           settings.excludesViewedInRandomMode {
-            return settings.t("All Items Reviewed")
-        }
-        return "\(localizedTitle(for: manager.currentFilter)) · \(manager.cleaningCandidateCount) \(settings.t("Items"))"
     }
 
     private func count(for filter: PhotoFilter) -> Int {
@@ -197,10 +252,10 @@ struct CleanHomeView: View {
             Button(settings.t("Manage Access")) { presentLimitedLibraryPicker() }
                 .font(.subheadline.weight(.semibold))
         }
-        .padding(16)
+        .padding(14)
         .background(
             Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
         )
     }
 
@@ -210,6 +265,56 @@ struct CleanHomeView: View {
             .first(where: { $0.activationState == .foregroundActive }),
               let controller = scene.windows.first(where: \.isKeyWindow)?.rootViewController else { return }
         PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller)
+    }
+}
+
+private struct CleaningPreviewMosaic: View {
+    let assets: [PHAsset]
+
+    var body: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 2) {
+                tile(at: 0)
+                    .frame(width: proxy.size.width * 0.61)
+                VStack(spacing: 0) {
+                    tile(at: 1)
+                    HStack(spacing: 0) {
+                        tile(at: 2)
+                        tile(at: 3)
+                    }
+                }
+            }
+        }
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipped()
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private func tile(at index: Int) -> some View {
+        if assets.indices.contains(index) {
+            AssetMediaView(
+                asset: assets[index],
+                contentMode: .fill,
+                showsVideoBadge: false
+            )
+        } else {
+            ZStack {
+                Color(uiColor: .secondarySystemGroupedBackground)
+                Image(systemName: index == 0 ? "photo.on.rectangle.angled" : "photo")
+                    .font(index == 0 ? .largeTitle : .title3)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+}
+
+private struct HomePrimaryButtonStyle: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.buttonStyle(.glassProminent)
+        } else {
+            content.buttonStyle(.borderedProminent)
+        }
     }
 }
 
