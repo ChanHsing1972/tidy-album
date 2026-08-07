@@ -53,9 +53,9 @@ actor LocalSimilarityService {
         // background scanner deliberately narrow so a large library cannot
         // starve interactive poster requests during the first minutes after
         // launch.
-        for lowerBound in stride(from: 0, to: assets.count, by: 2) {
+        for lowerBound in stride(from: 0, to: assets.count, by: 6) {
             guard !Task.isCancelled else { return [] }
-            let upperBound = min(lowerBound + 2, assets.count)
+            let upperBound = min(lowerBound + 6, assets.count)
             let loaded = await withTaskGroup(of: (Int, Fingerprint?).self) { group in
                 for index in lowerBound..<upperBound where values[index] == nil {
                     let asset = assets[index]
@@ -76,7 +76,7 @@ actor LocalSimilarityService {
             if upperBound == assets.count || upperBound.isMultiple(of: 32) {
                 await progress(Double(upperBound) / Double(assets.count))
             }
-            try? await Task.sleep(for: .milliseconds(12))
+            try? await Task.sleep(for: .milliseconds(8))
             await Task.yield()
         }
 
@@ -145,7 +145,7 @@ actor LocalSimilarityService {
     }
 
     private nonisolated static func fingerprint(for asset: PHAsset) async -> Fingerprint? {
-        await Task.detached(priority: .background) {
+        await Task.detached(priority: .utility) {
             let options = PHImageRequestOptions()
             options.deliveryMode = .fastFormat
             options.resizeMode = .fast
@@ -154,7 +154,7 @@ actor LocalSimilarityService {
             var image: UIImage?
             PHImageManager.default().requestImage(
                 for: asset,
-                targetSize: CGSize(width: 72, height: 64),
+                targetSize: CGSize(width: 48, height: 42),
                 contentMode: .aspectFit,
                 options: options
             ) { candidate, _ in image = candidate }

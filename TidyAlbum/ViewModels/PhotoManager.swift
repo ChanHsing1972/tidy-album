@@ -252,6 +252,7 @@ final class PhotoManager: NSObject, ObservableObject {
     // MARK: Grouped Sessions
 
     func beginSession() {
+        pauseSimilarityScan()
         let trashIDs = Set(trashBin.map(\.localIdentifier))
         var available = assets.filter { !trashIDs.contains($0.localIdentifier) }
         if settings.sortOrder == .random, settings.excludesViewedInRandomMode {
@@ -261,6 +262,7 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func beginSession(with requestedAssets: [PHAsset]) {
+        pauseSimilarityScan()
         let trashIDs = Set(trashBin.map(\.localIdentifier))
         let available = orderedForCleaning(
             requestedAssets.filter { !trashIDs.contains($0.localIdentifier) }
@@ -389,6 +391,7 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func endSession() {
+        pauseSimilarityScan()
         isSessionActive = false
         AssetImagePipeline.shared.stopCaching()
         sessionAssets.removeAll()
