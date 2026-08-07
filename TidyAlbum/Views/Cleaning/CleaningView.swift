@@ -24,6 +24,8 @@ struct CleaningView: View {
     @State private var showsTimeline = false
     @State private var isTimelinePreviewVisible = false
     @State private var timelineAssets: [PHAsset] = []
+    @State private var availableTimelineAssets: [PHAsset] = []
+    @State private var timelineTargetColumns: [String: Int] = [:]
     @State private var hasLoadedFullTimelineAssets = false
     @State private var isInspecting = false
     @State private var completionControlsHidden = false
@@ -41,20 +43,16 @@ struct CleaningView: View {
         return manager.sessionAssets[currentIndex]
     }
 
-    private var availableTimelineAssets: [PHAsset] {
-        let trashIDs = Set(manager.trashBin.map(\.localIdentifier))
-        return timelineAssets.filter { !trashIDs.contains($0.localIdentifier) }
-    }
-
     private var timelineTargetColumn: Int {
-        CleaningTimelineLayout.targetColumn(
-            in: availableTimelineAssets,
-            selectedAssetID: selectedAssetID
-        )
+        timelineTargetColumns[selectedAssetID] ?? 1
     }
 
     private var hidesCleaningChrome: Bool {
         isInspecting || isTimelinePreviewVisible
+    }
+
+    private var showsTimelineChrome: Bool {
+        showsTimeline || isTimelinePreviewVisible
     }
 
     var body: some View {
@@ -77,6 +75,7 @@ struct CleaningView: View {
                         settings: settings,
                         onSelect: selectTimelineAsset
                     )
+                    .ignoresSafeArea()
                     .allowsHitTesting(showsTimeline)
                     .zIndex(1)
                 }
@@ -110,7 +109,7 @@ struct CleaningView: View {
                             onShowTimeline: {
                                 guard hasLoadedFullTimelineAssets else { return }
                                 timelineSession.setVisible(true)
-                                withAnimation(.easeOut(duration: 0.12)) {
+                                withAnimation(.easeInOut(duration: 0.2)) {
                                     showsTimeline = true
                                     isTimelinePreviewVisible = false
                                 }
@@ -135,6 +134,10 @@ struct CleaningView: View {
             }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { toolbar }
+            // The collection view ignores the changing safe area, so hiding
+            // the bottom toolbar after the card lands cannot move the grid.
+            // Navigation chrome remains native and keeps a constant height.
+            .toolbar(showsTimeline ? .hidden : .visible, for: .bottomBar)
         }
         .tint(.primary)
         .onAppear {
@@ -142,12 +145,16 @@ struct CleaningView: View {
             // A first local snapshot makes the timeline available immediately;
             // the full PhotoKit fetch below replaces it without changing the
             // selected identifier or the centered scroll position.
-            if timelineAssets.isEmpty { timelineAssets = manager.assets }
+            if timelineAssets.isEmpty {
+                timelineAssets = manager.assets
+                rebuildTimelineSnapshot()
+            }
         }
         .task {
             guard !hasLoadedFullTimelineAssets else { return }
             let fetched = await manager.fetchCalendarAssets()
             timelineAssets = fetched
+            rebuildTimelineSnapshot()
             hasLoadedFullTimelineAssets = true
         }
         .sheet(item: $detailsSelection) { selection in
@@ -191,12 +198,15 @@ struct CleaningView: View {
             guard !manager.sessionAssets.contains(where: { $0.localIdentifier == selectedAssetID }) else { return }
             selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? CleaningPageID.groupCompletion
         }
+        .onChange(of: manager.trashBin.map(\.localIdentifier)) { _, _ in
+            rebuildTimelineSnapshot()
+        }
     }
     
     // MARK: Toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        if showsTimeline {
+        if showsTimelineChrome {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: closeTimeline) {
                     Label("Close", systemImage: "xmark")
@@ -335,6 +345,12 @@ struct CleaningView: View {
         if !manager.sessionAssets.contains(where: { $0.localIdentifier == asset.localIdentifier }) {
             manager.beginSession(around: asset, from: availableTimelineAssets)
         }
+        let token = UUID()
+        selectionAnimationRequest = CleaningSelectionAnimationRequest(
+            token: token,
+            assetIdentifier: asset.localIdentifier,
+            style: .timelineReveal
+        )
         selectedAssetID = asset.localIdentifier
         closeTimeline()
     }
@@ -375,6 +391,16 @@ struct CleaningView: View {
     private func selectInitialAsset() {
         guard selectedAssetID.isEmpty else { return }
         selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? CleaningPageID.groupCompletion
+    }
+
+    private func rebuildTimelineSnapshot() {
+        let trashIDs = Set(manager.trashBin.map(\.localIdentifier))
+        availableTimelineAssets = timelineAssets.filter {
+            !trashIDs.contains($0.localIdentifier)
+        }
+        timelineTargetColumns = CleaningTimelineLayout.targetColumns(
+            in: availableTimelineAssets
+        )
     }
 
     private func loadNextGroup() {
@@ -567,10 +593,15 @@ private struct CleaningAssetInfoIsland: View {
                 VStack(spacing: 2) {
                     // 1. 时间信息（不使用 .id，依靠 contentTransition 配合 withAnimation 进行无缝淡入淡出）
                     if let creationDate = asset.creationDate {
-                        Text(settings.relativeDate(creationDate))
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                            .contentTransition(.opacity)
+                        let relative = relativeDateParts(settings.relativeDate(creationDate))
+                        HStack(spacing: 0) {
+                            Text(relative.value)
+                                .contentTransition(.numericText())
+                                .animation(.spring(duration: 0.28, bounce: 0.08), value: relative.value)
+                            Text(relative.suffix)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
                     }
                     
                     // Reserve the second line before asynchronous metadata arrives.
@@ -601,7 +632,6 @@ private struct CleaningAssetInfoIsland: View {
             }
         }
         .padding(.horizontal, 12)
-        .animation(.easeInOut(duration: 0.22), value: assetIdentifier)
         .animation(.easeInOut(duration: 0.2), value: hasSecondaryInfo)
         .animation(.easeOut(duration: 0.18), value: isFavorite)
         .task(id: asset.map { "\($0.localIdentifier)-\(settings.language.rawValue)-\(settings.assetInfoDisplayMode.rawValue)" } ?? "") {
@@ -630,6 +660,13 @@ private struct CleaningAssetInfoIsland: View {
                 break
             }
         }
+    }
+
+    private func relativeDateParts(_ text: String) -> (value: String, suffix: String) {
+        guard let range = text.range(of: "[0-9]+", options: .regularExpression) else {
+            return (text, "")
+        }
+        return (String(text[range]), String(text[range.upperBound...]))
     }
 
     private func secondaryInfoText(for asset: PHAsset) -> String? {

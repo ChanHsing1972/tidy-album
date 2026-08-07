@@ -189,7 +189,7 @@ final class PhotoManager: NSObject, ObservableObject {
         isLoading = currentFilter == .similar
         if currentFilter == .similar { loadedFilter = nil }
         similarityProgress = 0
-        similarityScanTask = Task { [weak self] in
+        similarityScanTask = Task(priority: .background) { [weak self] in
             guard let self else { return }
             let source = await self.photoService.fetchAssets(filter: .similar)
             guard !Task.isCancelled else { return }
@@ -205,6 +205,16 @@ final class PhotoManager: NSObject, ObservableObject {
                 self.applySimilarityGroupsToCurrentFilter()
             }
             self.similarityScanTask = nil
+        }
+    }
+
+    func pauseSimilarityScan() {
+        guard !hasCompletedSimilarityScan else { return }
+        similarityScanTask?.cancel()
+        similarityScanTask = nil
+        similarityProgress = nil
+        if currentFilter == .similar {
+            isLoading = false
         }
     }
 

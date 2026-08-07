@@ -4,29 +4,38 @@ import UIKit
 
 enum CleaningTimelineLayout {
     static let columnCount = 3
-    static let spacing: CGFloat = 2
+    static let spacing: CGFloat = 6
+    static let horizontalInset: CGFloat = 12
+
+    static func itemSide(containerWidth: CGFloat) -> CGFloat {
+        (
+            containerWidth
+                - 2 * horizontalInset
+                - CGFloat(columnCount - 1) * spacing
+        ) / CGFloat(columnCount)
+    }
 
     static func targetColumn(in assets: [PHAsset], selectedAssetID: String) -> Int {
-        guard let selected = assets.first(where: { $0.localIdentifier == selectedAssetID }) else {
-            return 1
-        }
+        targetColumns(in: assets)[selectedAssetID] ?? 1
+    }
+
+    static func targetColumns(in assets: [PHAsset]) -> [String: Int] {
         let calendar = Calendar.current
-        let selectedComponents = selected.creationDate.map {
-            calendar.dateComponents([.year, .month], from: $0)
-        } ?? DateComponents()
-        let sectionAssets = assets.filter { asset in
-            let components = asset.creationDate.map {
+        let grouped = Dictionary(grouping: assets) { asset in
+            asset.creationDate.map {
                 calendar.dateComponents([.year, .month], from: $0)
             } ?? DateComponents()
-            return components.year == selectedComponents.year
-                && components.month == selectedComponents.month
-        }.sorted {
-            ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
         }
-        let index = sectionAssets.firstIndex {
-            $0.localIdentifier == selectedAssetID
-        } ?? 1
-        return index % columnCount
+        var result: [String: Int] = [:]
+        result.reserveCapacity(assets.count)
+        for sectionAssets in grouped.values {
+            for (index, asset) in sectionAssets.sorted(by: {
+                ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+            }).enumerated() {
+                result[asset.localIdentifier] = index % columnCount
+            }
+        }
+        return result
     }
 }
 
@@ -54,6 +63,10 @@ final class CleaningTimelineSession {
 
     func setVisible(_ visible: Bool) {
         setProgress(visible ? 1 : 0)
+    }
+
+    func targetFrame(in view: UIView) -> CGRect? {
+        controller?.selectedAssetFrame(in: view)
     }
 }
 
@@ -120,7 +133,7 @@ final class CleaningTimelineViewController: UIViewController,
         override init(frame: CGRect) {
             super.init(frame: frame)
             contentView.clipsToBounds = true
-            contentView.layer.cornerRadius = 2
+            contentView.layer.cornerRadius = 12
             contentView.layer.cornerCurve = .continuous
             imageView.contentMode = .scaleAspectFill
             imageView.clipsToBounds = true
@@ -131,7 +144,7 @@ final class CleaningTimelineViewController: UIViewController,
             selectionView.backgroundColor = .clear
             selectionView.layer.borderColor = UIColor.white.cgColor
             selectionView.layer.borderWidth = 2.5
-            selectionView.layer.cornerRadius = 2
+            selectionView.layer.cornerRadius = 10
             contentView.addSubview(selectionView)
 
             checkmark.tintColor = .systemBlue
@@ -200,13 +213,15 @@ final class CleaningTimelineViewController: UIViewController,
     private var onSelect: ((PHAsset) -> Void)?
     private var didInitialScroll = false
     private var transitionProgress: CGFloat = 0
+    private var alignmentRequestID = 0
+    private var contentInsetBoundsSize = CGSize.zero
 
     init() {
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = CleaningTimelineLayout.spacing
         layout.minimumLineSpacing = CleaningTimelineLayout.spacing
-        layout.sectionInset = UIEdgeInsets(top: 10, left: 0, bottom: 36, right: 0)
-        layout.headerReferenceSize = CGSize(width: 0, height: 44)
+        layout.sectionInset = UIEdgeInsets(top: 4, left: 12, bottom: 24, right: 12)
+        layout.headerReferenceSize = CGSize(width: 0, height: 48)
         layout.sectionHeadersPinToVisibleBounds = false
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         super.init(nibName: nil, bundle: nil)
@@ -216,9 +231,10 @@ final class CleaningTimelineViewController: UIViewController,
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = .secondarySystemBackground
         view.alpha = 0
-        collectionView.backgroundColor = .systemBackground
+        collectionView.backgroundColor = .secondarySystemBackground
+        collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
         collectionView.showsVerticalScrollIndicator = false
         collectionView.dataSource = self
@@ -236,6 +252,18 @@ final class CleaningTimelineViewController: UIViewController,
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         collectionView.frame = view.bounds
+        if contentInsetBoundsSize != view.bounds.size {
+            contentInsetBoundsSize = view.bounds.size
+            let insets = UIEdgeInsets(
+                top: max(view.safeAreaInsets.top + 56, 96),
+                left: 0,
+                bottom: max(view.safeAreaInsets.bottom + 12, 24),
+                right: 0
+            )
+            collectionView.contentInset = insets
+            collectionView.scrollIndicatorInsets = insets
+            didInitialScroll = false
+        }
         if !didInitialScroll { scrollToSelection(animated: false) }
     }
 
@@ -245,7 +273,9 @@ final class CleaningTimelineViewController: UIViewController,
         settings: SettingsStore,
         onSelect: @escaping (PHAsset) -> Void
     ) {
-        let idsChanged = self.assets.map(\.localIdentifier) != assets.map(\.localIdentifier)
+        let idsChanged = self.assets.count != assets.count
+            || self.assets.first?.localIdentifier != assets.first?.localIdentifier
+            || self.assets.last?.localIdentifier != assets.last?.localIdentifier
         let selectionChanged = self.selectedAssetID != selectedAssetID
         self.assets = assets
         self.selectedAssetID = selectedAssetID
@@ -255,6 +285,7 @@ final class CleaningTimelineViewController: UIViewController,
             sections = makeSections(assets)
             collectionView.reloadData()
             didInitialScroll = false
+            alignmentRequestID += 1
             view.setNeedsLayout()
             view.layoutIfNeeded()
         }
@@ -263,7 +294,17 @@ final class CleaningTimelineViewController: UIViewController,
 
     func setTransitionProgress(_ progress: CGFloat) {
         transitionProgress = min(max(progress, 0), 1)
+        // Align before revealing the first frame of the pinch transition. A
+        // regular scrollToItem call can run before contentSize is final and
+        // leave the selected month one or more rows away from the card.
+        if transitionProgress > 0.001, !didInitialScroll {
+            scrollToSelection(animated: false)
+        }
         view.alpha = transitionProgress
+        view.accessibilityElementsHidden = transitionProgress <= 0.001
+        collectionView.accessibilityIdentifier = transitionProgress > 0.001
+            ? "tidyalbum.cleaning-timeline"
+            : nil
     }
 
     func tearDown() {
@@ -302,18 +343,58 @@ final class CleaningTimelineViewController: UIViewController,
     }
 
     private func scrollToSelection(animated: Bool) {
+        guard collectionView.bounds.width > 0,
+              let indexPath = selectedIndexPath else { return }
+        collectionView.layoutIfNeeded()
+        collectionView.collectionViewLayout.invalidateLayout()
+        collectionView.layoutIfNeeded()
+        guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else {
+            let requestID = alignmentRequestID
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.alignmentRequestID == requestID else { return }
+                self.scrollToSelection(animated: animated)
+            }
+            return
+        }
+        let insets = collectionView.adjustedContentInset
+        let visibleHeight = max(collectionView.bounds.height - insets.top - insets.bottom, 1)
+        let desiredY = attributes.center.y - insets.top - visibleHeight * 0.5
+        let minimumY = -insets.top
+        let maximumY = max(
+            minimumY,
+            collectionView.contentSize.height - collectionView.bounds.height + insets.bottom
+        )
+        let targetOffset = CGPoint(
+            x: collectionView.contentOffset.x,
+            y: min(max(desiredY, minimumY), maximumY)
+        )
+        if animated {
+            collectionView.setContentOffset(targetOffset, animated: true)
+        } else {
+            UIView.performWithoutAnimation {
+                collectionView.setContentOffset(targetOffset, animated: false)
+            }
+        }
+        didInitialScroll = true
+    }
+
+    func selectedAssetFrame(in coordinateView: UIView) -> CGRect? {
+        if !didInitialScroll { scrollToSelection(animated: false) }
+        collectionView.layoutIfNeeded()
+        guard let indexPath = selectedIndexPath,
+              let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
+        return collectionView.convert(attributes.frame, to: coordinateView)
+    }
+
+    private var selectedIndexPath: IndexPath? {
         guard !sections.isEmpty,
-              collectionView.bounds.width > 0,
               let sectionIndex = sections.firstIndex(where: {
                   $0.assets.contains { $0.localIdentifier == selectedAssetID }
               }),
               let itemIndex = sections[sectionIndex].assets.firstIndex(where: {
                   $0.localIdentifier == selectedAssetID
-              }) else { return }
-        collectionView.layoutIfNeeded()
-        let indexPath = IndexPath(item: itemIndex, section: sectionIndex)
-        collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
-        didInitialScroll = true
+              }) else { return nil }
+        return IndexPath(item: itemIndex, section: sectionIndex)
     }
 
     func numberOfSections(in collectionView: UICollectionView) -> Int { sections.count }
@@ -348,7 +429,7 @@ final class CleaningTimelineViewController: UIViewController,
         layout collectionViewLayout: UICollectionViewLayout,
         sizeForItemAt indexPath: IndexPath
     ) -> CGSize {
-        let width = (collectionView.bounds.width - 2 * CleaningTimelineLayout.spacing) / 3
+        let width = CleaningTimelineLayout.itemSide(containerWidth: collectionView.bounds.width)
         return CGSize(width: width, height: width)
     }
 
@@ -376,7 +457,7 @@ private final class TimelineHeader: UICollectionReusableView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
         countLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
         countLabel.textColor = .secondaryLabel
         addSubview(titleLabel)
@@ -387,8 +468,8 @@ private final class TimelineHeader: UICollectionReusableView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        titleLabel.frame = CGRect(x: 14, y: 8, width: bounds.width - 90, height: 28)
+        titleLabel.frame = CGRect(x: 18, y: 10, width: bounds.width - 110, height: 24)
         countLabel.sizeToFit()
-        countLabel.frame.origin = CGPoint(x: bounds.width - countLabel.bounds.width - 14, y: 12)
+        countLabel.frame.origin = CGPoint(x: bounds.width - countLabel.bounds.width - 18, y: 12)
     }
 }

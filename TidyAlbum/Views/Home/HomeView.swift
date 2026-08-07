@@ -90,7 +90,17 @@ struct CleanHomeView: View {
             manager.fetchPhotos()
             manager.refreshLibraryOverview()
         }
-        .task { manager.prepareSimilarityScan() }
+        .task(id: showsCleaning) {
+            guard !showsCleaning else {
+                manager.pauseSimilarityScan()
+                return
+            }
+            // Let the initial library UI and its first animations settle before
+            // starting low-priority visual fingerprint work.
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled, !showsCleaning else { return }
+            manager.prepareSimilarityScan()
+        }
     }
 
     private var libraryCount: Int {
@@ -238,6 +248,7 @@ struct CleanHomeView: View {
     private func beginCleaning() {
         guard manager.canBeginSession else { return }
         presentsSummaryAfterCleaning = false
+        manager.pauseSimilarityScan()
         manager.beginSession()
         showsCleaning = true
     }

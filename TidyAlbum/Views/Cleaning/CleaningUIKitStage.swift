@@ -10,6 +10,7 @@ struct CleaningSelectionAnimationRequest: Equatable {
     enum Style: Equatable {
         case deletionRestore
         case reviewReveal
+        case timelineReveal
     }
 
     let token: UUID
@@ -128,6 +129,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var undoAnimationStyle = CleaningSelectionAnimationRequest.Style.deletionRestore
     private var backdropTargetID: String?
     private var animator: UIViewPropertyAnimator?
+    private var pendingAnimatorCompletion: (() -> Void)?
     private var inspectionAnimator: UIViewPropertyAnimator?
     private var pinchIntent = CleaningPinchIntent.undetermined
     private var viewingScale: CGFloat = 1
@@ -380,7 +382,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         guard !isTransitioning, currentIndex != nil else { return }
         switch recognizer.state {
         case .began:
-            inspectionAnimator?.stopAnimation(true)
+            stopInspectionAnimationAtCurrentPosition()
             resetMotion()
             pinchStartScale = viewingScale
             pinchStartRawTranslation = rawViewingTranslation
@@ -437,7 +439,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                 // Once a gesture starts as inspection, pinching back can only
                 // return to the fitted image. It cannot cross into the timeline
                 // action until the fingers lift and a new pinch begins.
-                let targetScale = min(max(pinchStartScale * recognizer.scale, 1), 4)
+                let targetScale = rubberBandedViewingScale(pinchStartScale * recognizer.scale)
                 let ratio = targetScale / max(pinchStartScale, 0.001)
                 let followingTranslation = CGPoint(
                     x: pinchStartRawTranslation.x + currentRelative.x - startRelative.x
@@ -461,18 +463,14 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                 } else {
                     resetTimelineTransition(animated: true, keepPreview: false)
                 }
-            } else if viewingScale < 1.015 {
-                resetViewingState(animated: true)
             } else {
-                viewingScale = min(viewingScale, 4)
-                setImmersive(true)
-                settleViewingTranslationIfNeeded()
+                settleViewingState(pinchVelocity: recognizer.velocity)
             }
         case .cancelled, .failed:
             if pinchIntent == .timeline {
                 resetTimelineTransition(animated: true, keepPreview: false)
-            } else if viewingScale < 1.015 {
-                resetViewingState(animated: true)
+            } else {
+                settleViewingState(pinchVelocity: 0)
             }
         default:
             break
@@ -482,8 +480,12 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
-            guard !isTransitioning else { return }
-            inspectionAnimator?.stopAnimation(true)
+            // A fast next swipe may begin while the previous settle animation
+            // is still active. Commit that animation synchronously so this
+            // touch starts from a stable page instead of being dropped.
+            finishTransitionForNewGestureIfNeeded()
+            guard currentPageIndex != nil else { return }
+            stopInspectionAnimationAtCurrentPosition()
             applyTransformsWithoutAnimation()
             if viewingScale > 1 {
                 inspectionPanStart = rawViewingTranslation
@@ -520,7 +522,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         case .ended:
             guard !isTransitioning else { return }
             if viewingScale > 1 {
-                settleViewingTranslationIfNeeded()
+                settleViewingTranslationIfNeeded(velocity: recognizer.velocity(in: view))
                 return
             }
             if axis != .undetermined {
@@ -602,7 +604,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             distance: remainingDistance,
             velocity: velocity,
             baselineVelocity: 1_400,
-            range: 0.22...0.32
+            range: 0.045...0.16
         )
         translation = CGPoint(x: -CGFloat(direction) * width, y: 0)
         animate(duration: duration, dampingRatio: 0.9, animations: {
@@ -658,8 +660,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         let duration = settlingDuration(
             distance: abs(destinationY - translation.y),
             velocity: releaseVelocity,
-            baselineVelocity: 2_800,
-            range: 0.12...0.24
+            baselineVelocity: 4_200,
+            range: 0.08...0.18
         )
         translation.y = destinationY
         deletionProgress = 1
@@ -826,8 +828,28 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         }
     }
 
+    private func stopInspectionAnimationAtCurrentPosition() {
+        guard let inspectionAnimator, inspectionAnimator.state == .active else { return }
+        var currentTransform: CGAffineTransform?
+        if viewingScale > 1,
+           let page = cardViews[selectedAssetID],
+           let presentation = page.layer.presentation() {
+            currentTransform = presentation.affineTransform()
+        }
+        inspectionAnimator.stopAnimation(false)
+        inspectionAnimator.finishAnimation(at: .current)
+        self.inspectionAnimator = nil
+        if let transform = currentTransform {
+            viewingScale = max(hypot(transform.a, transform.c), 1)
+            viewingTranslation = CGPoint(x: transform.tx, y: transform.ty)
+            rawViewingTranslation = viewingTranslation
+            applyTransformsWithoutAnimation()
+        }
+    }
+
     private func resetViewingState(animated: Bool) {
         inspectionAnimator?.stopAnimation(true)
+        inspectionAnimator = nil
         pinchIntent = .undetermined
         viewingScale = 1
         viewingTranslation = .zero
@@ -837,10 +859,11 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             applyTransformsWithoutAnimation()
             return
         }
-        let animator = UIViewPropertyAnimator(duration: 0.28, dampingRatio: 0.88) {
+        let animator = UIViewPropertyAnimator(duration: 0.38, dampingRatio: 0.86) {
             self.applyTransforms()
         }
         inspectionAnimator = animator
+        animator.addCompletion { [weak self] _ in self?.inspectionAnimator = nil }
         animator.startAnimation()
     }
 
@@ -865,7 +888,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             completion()
             return
         }
-        let animator = UIViewPropertyAnimator(duration: 0.12, curve: .easeOut) {
+        let animator = UIViewPropertyAnimator(duration: 0.18, dampingRatio: 0.92) {
             self.applyTransforms()
         }
         inspectionAnimator = animator
@@ -922,51 +945,131 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
 
     private func clampedViewingTranslation(_ value: CGPoint, scale: CGFloat) -> CGPoint {
         guard scale > 1 else { return .zero }
-        let limits = viewingTranslationLimits(scale: scale)
+        let ranges = viewingTranslationRanges(scale: scale)
         return CGPoint(
-            x: min(max(value.x, -limits.x), limits.x),
-            y: min(max(value.y, -limits.y), limits.y)
+            x: min(max(value.x, ranges.x.lowerBound), ranges.x.upperBound),
+            y: min(max(value.y, ranges.y.lowerBound), ranges.y.upperBound)
         )
     }
 
     private func rubberBandedViewingTranslation(_ value: CGPoint, scale: CGFloat) -> CGPoint {
         guard scale > 1 else { return .zero }
-        let limits = viewingTranslationLimits(scale: scale)
+        let ranges = viewingTranslationRanges(scale: scale)
         return CGPoint(
-            x: rubberBanded(value.x, limit: limits.x),
-            y: rubberBanded(value.y, limit: limits.y)
+            x: rubberBanded(value.x, range: ranges.x),
+            y: rubberBanded(value.y, range: ranges.y)
         )
     }
 
-    private func viewingTranslationLimits(scale: CGFloat) -> CGPoint {
-        CGPoint(
-            x: view.bounds.width * (scale - 1) * 0.5,
-            y: view.bounds.height * (scale - 1) * 0.5
+    private func viewingTranslationRanges(
+        scale: CGFloat
+    ) -> (x: ClosedRange<CGFloat>, y: ClosedRange<CGFloat>) {
+        guard let page = cardViews[selectedAssetID] else { return (0...0, 0...0) }
+        let content = page.inspectionContentFrame
+        let viewport = view.bounds
+        let scaled = CGRect(
+            x: viewport.midX + (content.minX - viewport.midX) * scale,
+            y: viewport.midY + (content.minY - viewport.midY) * scale,
+            width: content.width * scale,
+            height: content.height * scale
+        )
+
+        func range(
+            scaledMinimum: CGFloat,
+            scaledMaximum: CGFloat,
+            viewportMinimum: CGFloat,
+            viewportMaximum: CGFloat
+        ) -> ClosedRange<CGFloat> {
+            let lower = viewportMaximum - scaledMaximum
+            let upper = viewportMinimum - scaledMinimum
+            guard lower <= upper else { return 0...0 }
+            return lower...upper
+        }
+
+        return (
+            range(
+                scaledMinimum: scaled.minX,
+                scaledMaximum: scaled.maxX,
+                viewportMinimum: viewport.minX,
+                viewportMaximum: viewport.maxX
+            ),
+            range(
+                scaledMinimum: scaled.minY,
+                scaledMaximum: scaled.maxY,
+                viewportMinimum: viewport.minY,
+                viewportMaximum: viewport.maxY
+            )
         )
     }
 
-    private func rubberBanded(_ value: CGFloat, limit: CGFloat) -> CGFloat {
-        let magnitude = abs(value)
-        guard magnitude > limit else { return value }
-        let excess = magnitude - limit
-        let resisted = limit + (1 - 1 / (excess * 0.012 + 1)) * 72
-        return value < 0 ? -resisted : resisted
+    private func rubberBanded(_ value: CGFloat, range: ClosedRange<CGFloat>) -> CGFloat {
+        if range.contains(value) { return value }
+        let boundary = value < range.lowerBound ? range.lowerBound : range.upperBound
+        let excess = abs(value - boundary)
+        let resisted = (1 - 1 / (excess * 0.012 + 1)) * 82
+        return boundary + (value < boundary ? -resisted : resisted)
     }
 
-    private func settleViewingTranslationIfNeeded() {
-        let target = clampedViewingTranslation(rawViewingTranslation, scale: viewingScale)
+    private func rubberBandedViewingScale(_ value: CGFloat) -> CGFloat {
+        if value < 1 {
+            let excess = 1 - value
+            return 1 - (1 - 1 / (excess * 4 + 1)) * 0.22
+        }
+        if value > 4 {
+            let excess = value - 4
+            return 4 + (1 - 1 / (excess * 1.6 + 1)) * 0.5
+        }
+        return value
+    }
+
+    private func settleViewingState(pinchVelocity: CGFloat) {
+        let targetScale = min(max(viewingScale, 1), 4)
+        guard targetScale > 1.015 else {
+            resetViewingState(animated: true)
+            return
+        }
+        viewingScale = targetScale
+        let target = clampedViewingTranslation(rawViewingTranslation, scale: targetScale)
+        rawViewingTranslation = target
+        viewingTranslation = target
+        pinchIntent = .inspection
+        setImmersive(true)
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            applyTransformsWithoutAnimation()
+            return
+        }
+        let damping = min(max(0.86 - abs(pinchVelocity) * 0.015, 0.78), 0.9)
+        let animator = UIViewPropertyAnimator(duration: 0.38, dampingRatio: damping) {
+            self.applyTransforms()
+        }
+        inspectionAnimator = animator
+        animator.addCompletion { [weak self] _ in self?.inspectionAnimator = nil }
+        animator.startAnimation()
+    }
+
+    private func settleViewingTranslationIfNeeded(velocity: CGPoint = .zero) {
+        let rate = UIScrollView.DecelerationRate.fast.rawValue
+        let projection = rate / (1 - rate) / 1_000
+        let projected = CGPoint(
+            x: rawViewingTranslation.x + velocity.x * projection,
+            y: rawViewingTranslation.y + velocity.y * projection
+        )
+        let target = clampedViewingTranslation(projected, scale: viewingScale)
         rawViewingTranslation = target
         guard abs(viewingTranslation.x - target.x) > 0.5
-                || abs(viewingTranslation.y - target.y) > 0.5 else {
+                || abs(viewingTranslation.y - target.y) > 0.5
+                || abs(velocity.x) > 20
+                || abs(velocity.y) > 20 else {
             viewingTranslation = target
             applyTransformsWithoutAnimation()
             return
         }
         viewingTranslation = target
-        let animator = UIViewPropertyAnimator(duration: 0.24, dampingRatio: 0.9) {
+        let animator = UIViewPropertyAnimator(duration: 0.42, dampingRatio: 0.88) {
             self.applyTransforms()
         }
         inspectionAnimator = animator
+        animator.addCompletion { [weak self] _ in self?.inspectionAnimator = nil }
         animator.startAnimation()
     }
 
@@ -1094,6 +1197,10 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                             .scaledBy(x: scale, y: scale)
                     )
                     page.alpha = 0.84 + 0.16 * undoAnimationProgress
+                } else if undoAnimationStyle == .timelineReveal {
+                    let scale = 0.28 + 0.72 * undoAnimationProgress
+                    page.layer.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
+                    page.alpha = min(1, undoAnimationProgress * 1.2)
                 } else {
                     let scale = 0.94 + 0.06 * undoAnimationProgress
                     page.layer.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
@@ -1115,13 +1222,26 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                     ? 0.55 + 0.45 * viewingScale
                     : 1
             }
-            let timelineSide = max((view.bounds.width - 4) / 3, 1)
-            let timelineCenterX = timelineSide * 0.5
-                + CGFloat(timelineTargetColumn) * (timelineSide + 2)
+            let fallbackSide = max(
+                CleaningTimelineLayout.itemSide(containerWidth: view.bounds.width),
+                1
+            )
+            let fallbackCenter = CGPoint(
+                x: CleaningTimelineLayout.horizontalInset
+                    + fallbackSide * 0.5
+                    + CGFloat(timelineTargetColumn)
+                        * (fallbackSide + CleaningTimelineLayout.spacing),
+                y: view.bounds.midY
+            )
+            let timelineFrame = timelineSession?.targetFrame(in: view)
+            let timelineSide = timelineFrame.map { min($0.width, $0.height) } ?? fallbackSide
+            let timelineCenter = timelineFrame.map {
+                CGPoint(x: $0.midX, y: $0.midY)
+            } ?? fallbackCenter
             page.setTimelineTransition(
                 progress: index == currentPageIndex ? timelineTransitionProgress : 0,
                 targetSide: timelineSide,
-                targetCenterX: timelineCenterX
+                targetCenter: timelineCenter
             )
             let actionTranslation = committedActionDirection.map { $0 * actionThreshold }
                 ?? (axis == .vertical ? translation.y : 0)
@@ -1198,6 +1318,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         completion: @escaping () -> Void
     ) {
         animator?.stopAnimation(true)
+        pendingAnimatorCompletion = completion
         let animator = UIViewPropertyAnimator(
             duration: UIAccessibility.isReduceMotionEnabled ? min(duration, 0.18) : duration,
             dampingRatio: dampingRatio,
@@ -1205,6 +1326,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         )
         animator.addCompletion { position in
             guard position == .end else { return }
+            self.pendingAnimatorCompletion = nil
+            self.animator = nil
             completion()
         }
         self.animator = animator
@@ -1218,6 +1341,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         completion: @escaping () -> Void
     ) {
         animator?.stopAnimation(true)
+        pendingAnimatorCompletion = completion
         let animator = UIViewPropertyAnimator(
             duration: UIAccessibility.isReduceMotionEnabled ? min(duration, 0.18) : duration,
             curve: curve,
@@ -1225,6 +1349,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         )
         animator.addCompletion { position in
             guard position == .end else { return }
+            self.pendingAnimatorCompletion = nil
+            self.animator = nil
             completion()
         }
         self.animator = animator
@@ -1232,9 +1358,18 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     }
 
     private func finishTransitionForNewGestureIfNeeded() {
-        guard isTransitioning, let animator, animator.state == .active else { return }
-        animator.stopAnimation(false)
-        animator.finishAnimation(at: .end)
+        guard isTransitioning else { return }
+        if let animator, animator.state == .active {
+            animator.stopAnimation(false)
+            animator.finishAnimation(at: .end)
+        }
+        // PropertyAnimator normally invokes the completion above. Keep a
+        // synchronous fallback for a transition that was stopped during a
+        // layout/update callback, so the next gesture can never be refused.
+        if isTransitioning, let completion = pendingAnimatorCompletion {
+            pendingAnimatorCompletion = nil
+            completion()
+        }
     }
 
     private var currentPageIndex: Int? {

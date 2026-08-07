@@ -15,8 +15,7 @@ struct SimilarPhotoGroup: Identifiable {
 
 /// A small, on-device visual fingerprint scanner used for the Similar Photos
 /// collection. It never exports image data and only keeps compact fingerprints.
-@MainActor
-final class LocalSimilarityService {
+actor LocalSimilarityService {
     static let shared = LocalSimilarityService()
 
     private struct Fingerprint {
@@ -50,9 +49,13 @@ final class LocalSimilarityService {
         for index in assets.indices {
             values[index] = fingerprintCache[assets[index].localIdentifier]
         }
-        for lowerBound in stride(from: 0, to: assets.count, by: 12) {
+        // PhotoKit image decoding is shared with the cleaning UI. Keep this
+        // background scanner deliberately narrow so a large library cannot
+        // starve interactive poster requests during the first minutes after
+        // launch.
+        for lowerBound in stride(from: 0, to: assets.count, by: 2) {
             guard !Task.isCancelled else { return [] }
-            let upperBound = min(lowerBound + 12, assets.count)
+            let upperBound = min(lowerBound + 2, assets.count)
             let loaded = await withTaskGroup(of: (Int, Fingerprint?).self) { group in
                 for index in lowerBound..<upperBound where values[index] == nil {
                     let asset = assets[index]
@@ -70,7 +73,10 @@ final class LocalSimilarityService {
                     fingerprintCache[assets[index].localIdentifier] = value
                 }
             }
-            progress(Double(upperBound) / Double(assets.count))
+            if upperBound == assets.count || upperBound.isMultiple(of: 32) {
+                await progress(Double(upperBound) / Double(assets.count))
+            }
+            try? await Task.sleep(for: .milliseconds(12))
             await Task.yield()
         }
 
@@ -139,7 +145,7 @@ final class LocalSimilarityService {
     }
 
     private nonisolated static func fingerprint(for asset: PHAsset) async -> Fingerprint? {
-        await Task.detached(priority: .utility) {
+        await Task.detached(priority: .background) {
             let options = PHImageRequestOptions()
             options.deliveryMode = .fastFormat
             options.resizeMode = .fast

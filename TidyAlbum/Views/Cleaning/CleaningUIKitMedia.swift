@@ -17,6 +17,7 @@ final class CleaningCardPageView: UIView {
     private var timelineTransitionProgress: CGFloat = 0
     private var timelineTargetSide: CGFloat = 0
     private var timelineTargetCenterX: CGFloat?
+    private var timelineTargetCenterY: CGFloat?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -67,7 +68,7 @@ final class CleaningCardPageView: UIView {
         let targetSide = timelineTargetSide > 0 ? timelineTargetSide : fittedFrame.width
         let targetFrame = CGRect(
             x: (timelineTargetCenterX ?? bounds.midX) - targetSide * 0.5,
-            y: bounds.midY - targetSide * 0.5,
+            y: (timelineTargetCenterY ?? bounds.midY) - targetSide * 0.5,
             width: targetSide,
             height: targetSide
         )
@@ -128,18 +129,25 @@ final class CleaningCardPageView: UIView {
         self.isFavorite = isFavorite
     }
 
+    var inspectionContentFrame: CGRect {
+        layoutIfNeeded()
+        return shadowView.frame
+    }
+
     func setTimelineTransition(
         progress: CGFloat,
         targetSide: CGFloat,
-        targetCenterX: CGFloat
+        targetCenter: CGPoint
     ) {
         let progress = min(max(progress, 0), 1)
         guard abs(timelineTransitionProgress - progress) > 0.001
                 || abs(timelineTargetSide - targetSide) > 0.5
-                || abs((timelineTargetCenterX ?? targetCenterX) - targetCenterX) > 0.5 else { return }
+                || abs((timelineTargetCenterX ?? targetCenter.x) - targetCenter.x) > 0.5
+                || abs((timelineTargetCenterY ?? targetCenter.y) - targetCenter.y) > 0.5 else { return }
         timelineTransitionProgress = progress
         timelineTargetSide = targetSide
-        timelineTargetCenterX = targetCenterX
+        timelineTargetCenterX = targetCenter.x
+        timelineTargetCenterY = targetCenter.y
         mediaView.setInteractiveResize(progress > 0)
         setNeedsLayout()
         layoutIfNeeded()
