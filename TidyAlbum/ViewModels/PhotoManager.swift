@@ -189,7 +189,7 @@ final class PhotoManager: NSObject, ObservableObject {
         isLoading = currentFilter == .similar
         if currentFilter == .similar { loadedFilter = nil }
         similarityProgress = 0
-        similarityScanTask = Task(priority: .background) { [weak self] in
+        similarityScanTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             let source = await self.photoService.fetchAssets(filter: .similar)
             guard !Task.isCancelled else { return }

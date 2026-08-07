@@ -49,13 +49,14 @@ actor LocalSimilarityService {
         for index in assets.indices {
             values[index] = fingerprintCache[assets[index].localIdentifier]
         }
-        // PhotoKit image decoding is shared with the cleaning UI. Keep this
-        // background scanner deliberately narrow so a large library cannot
-        // starve interactive poster requests during the first minutes after
-        // launch.
-        for lowerBound in stride(from: 0, to: assets.count, by: 6) {
+        // The scanner is only active on its dedicated tab. Use a bounded
+        // burst of fast thumbnails so a large library finishes in seconds,
+        // while the cleaning session can cancel the whole task before it
+        // starts its own high-resolution requests.
+        let batchSize = 24
+        for lowerBound in stride(from: 0, to: assets.count, by: batchSize) {
             guard !Task.isCancelled else { return [] }
-            let upperBound = min(lowerBound + 6, assets.count)
+            let upperBound = min(lowerBound + batchSize, assets.count)
             let loaded = await withTaskGroup(of: (Int, Fingerprint?).self) { group in
                 for index in lowerBound..<upperBound where values[index] == nil {
                     let asset = assets[index]
@@ -73,10 +74,9 @@ actor LocalSimilarityService {
                     fingerprintCache[assets[index].localIdentifier] = value
                 }
             }
-            if upperBound == assets.count || upperBound.isMultiple(of: 32) {
+            if upperBound == assets.count || upperBound.isMultiple(of: 128) {
                 await progress(Double(upperBound) / Double(assets.count))
             }
-            try? await Task.sleep(for: .milliseconds(8))
             await Task.yield()
         }
 
@@ -145,7 +145,7 @@ actor LocalSimilarityService {
     }
 
     private nonisolated static func fingerprint(for asset: PHAsset) async -> Fingerprint? {
-        await Task.detached(priority: .utility) {
+        await Task.detached(priority: .userInitiated) {
             let options = PHImageRequestOptions()
             options.deliveryMode = .fastFormat
             options.resizeMode = .fast
@@ -154,7 +154,7 @@ actor LocalSimilarityService {
             var image: UIImage?
             PHImageManager.default().requestImage(
                 for: asset,
-                targetSize: CGSize(width: 48, height: 42),
+                targetSize: CGSize(width: 32, height: 28),
                 contentMode: .aspectFit,
                 options: options
             ) { candidate, _ in image = candidate }
