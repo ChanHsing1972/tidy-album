@@ -14,7 +14,6 @@ struct CleanHomeView: View {
     @State private var showsTrash = false
     @State private var showsSummary = false
     @State private var presentsSummaryAfterCleaning = false
-    @State private var selectedSimilarityGroup: SimilarPhotoGroup?
 
     private var previewIdentity: String {
         manager.assets.prefix(4).map(\.localIdentifier).joined(separator: "|")
@@ -49,17 +48,18 @@ struct CleanHomeView: View {
                 onHome: { showsSummary = false }
             )
         }
-        .sheet(item: $selectedSimilarityGroup) { group in
-            SimilarGroupComparisonView(
-                group: group,
-                manager: manager,
-                settings: settings
-            )
-        }
     }
 
     @ToolbarContentBuilder private var homeToolbar: some ToolbarContent {
         if manager.isAuthorized {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    SimilarPhotosView(manager: manager, settings: settings)
+                } label: {
+                    Label(settings.t("Similar Photos"), systemImage: "square.on.square")
+                }
+                .accessibilityLabel(settings.t("Similar Photos"))
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showsTrash = true } label: {
                     Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
@@ -77,7 +77,6 @@ struct CleanHomeView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if manager.isLimited { limitedAccessBanner }
                 reviewStage
-                if manager.currentFilter == .similar { similarGroupsSection }
                 collectionSection
             }
             .frame(maxWidth: 760)
@@ -95,11 +94,6 @@ struct CleanHomeView: View {
                 manager.pauseSimilarityScan()
                 return
             }
-            // Let the initial library UI and its first animations settle before
-            // starting low-priority visual fingerprint work.
-            try? await Task.sleep(for: .seconds(6))
-            guard !Task.isCancelled, !showsCleaning else { return }
-            manager.prepareSimilarityScan()
         }
     }
 
@@ -133,12 +127,10 @@ struct CleanHomeView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
-                Button(action: reviewStageAction) {
+                Button(action: beginCleaning) {
                     Label(
-                        settings.t(manager.currentFilter == .similar ? "Compare" : "Start Cleaning"),
-                        systemImage: manager.currentFilter == .similar
-                            ? "rectangle.split.2x1"
-                            : "play.fill"
+                        settings.t("Start Cleaning"),
+                        systemImage: "play.fill"
                     )
                         .font(.subheadline.weight(.semibold))
                 }
@@ -160,59 +152,13 @@ struct CleanHomeView: View {
 
     // MARK: Collections
 
-    @ViewBuilder private var similarGroupsSection: some View {
-        if let progress = manager.similarityProgress {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label(settings.t("Finding Similar Photos"), systemImage: "sparkle.magnifyingglass")
-                        .font(.headline)
-                    Spacer()
-                    Text(progress, format: .percent.precision(.fractionLength(0)))
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                ProgressView(value: progress)
-                Text(settings.t("Similarity Scan Background Detail"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(16)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        } else if manager.similarityGroups.isEmpty {
-            ContentUnavailableView(
-                settings.t("No Similar Groups"),
-                systemImage: "square.on.square.intersection.dashed",
-                description: Text(settings.t("No Similar Groups Detail"))
-            )
-            .frame(maxWidth: .infinity, minHeight: 180)
-        } else {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(settings.t("Similar Groups"))
-                        .font(.title3.bold())
-                    Spacer()
-                    Text(manager.similarityGroups.count.formatted())
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(manager.similarityGroups) { group in
-                    Button { selectedSimilarityGroup = group } label: {
-                        SimilarGroupRow(group: group, settings: settings)
-                    }
-                    .buttonStyle(ApplePressButtonStyle())
-                }
-            }
-        }
-    }
-
     private var collectionSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                 spacing: 12
             ) {
-                ForEach(PhotoFilter.allCases) { filter in
+                ForEach(PhotoFilter.allCases.filter { $0 != .similar }) { filter in
                     FilterCardView(
                         filter: filter,
                         title: localizedTitle(for: filter),
@@ -262,14 +208,6 @@ struct CleanHomeView: View {
             )
         }
         return "\(manager.cleaningCandidateCount.formatted()) \(settings.t("Items"))"
-    }
-
-    private func reviewStageAction() {
-        if manager.currentFilter == .similar {
-            selectedSimilarityGroup = manager.similarityGroups.first
-        } else {
-            beginCleaning()
-        }
     }
 
     private func cleaningDidDismiss() {
@@ -356,7 +294,7 @@ private struct CleaningPreviewMosaic: View {
     }
 }
 
-private struct SimilarGroupRow: View {
+struct SimilarGroupRow: View {
     let group: SimilarPhotoGroup
     @ObservedObject var settings: SettingsStore
 
@@ -395,7 +333,7 @@ private struct SimilarGroupRow: View {
     }
 }
 
-private struct SimilarGroupComparisonView: View {
+struct SimilarGroupComparisonView: View {
     let group: SimilarPhotoGroup
     @ObservedObject var manager: PhotoManager
     @ObservedObject var settings: SettingsStore
