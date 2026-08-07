@@ -35,8 +35,8 @@ enum CleaningMotionGeometry {
     ) -> CleaningPinchIntent {
         if current != .undetermined { return current }
         if startingScale > 1.03 { return .inspection }
-        if gestureScale < 0.97 { return .timeline }
-        if gestureScale > 1.03 { return .inspection }
+        if gestureScale < 0.985 { return .timeline }
+        if gestureScale > 1.015 { return .inspection }
         return .undetermined
     }
 

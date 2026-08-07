@@ -32,6 +32,8 @@ struct CleaningUIKitCardStage: UIViewControllerRepresentable {
     let onToggleFavorite: (PHAsset, Int) -> Void
     let onAddToAlbum: (PHAsset) -> Void
     let timelineTargetColumn: Int
+    let isTimelineAvailable: Bool
+    let timelineSession: CleaningTimelineSession
     let onTimelinePreviewChange: (Bool) -> Void
     let onShowTimeline: () -> Void
     let onImmersiveChange: (Bool) -> Void
@@ -70,6 +72,8 @@ struct CleaningUIKitCardStage: UIViewControllerRepresentable {
             onToggleFavorite: onToggleFavorite,
             onAddToAlbum: onAddToAlbum,
             timelineTargetColumn: timelineTargetColumn,
+            isTimelineAvailable: isTimelineAvailable,
+            timelineSession: timelineSession,
             onTimelinePreviewChange: onTimelinePreviewChange,
             onShowTimeline: onShowTimeline,
             onImmersiveChange: onImmersiveChange,
@@ -128,13 +132,16 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var pinchIntent = CleaningPinchIntent.undetermined
     private var viewingScale: CGFloat = 1
     private var viewingTranslation = CGPoint.zero
+    private var rawViewingTranslation = CGPoint.zero
     private var pinchStartScale: CGFloat = 1
-    private var pinchStartTranslation = CGPoint.zero
+    private var pinchStartRawTranslation = CGPoint.zero
     private var pinchStartLocation = CGPoint.zero
     private var inspectionPanStart = CGPoint.zero
     private var isImmersive = false
     private var timelineTransitionProgress: CGFloat = 0
     private var timelineTargetColumn = 1
+    private var isTimelineAvailable = false
+    private weak var timelineSession: CleaningTimelineSession?
     private var isTimelinePreviewVisible = false
     private var completionControlsHidden = false
     private var hapticsEnabled = true
@@ -215,6 +222,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         onToggleFavorite: @escaping (PHAsset, Int) -> Void,
         onAddToAlbum: @escaping (PHAsset) -> Void,
         timelineTargetColumn: Int,
+        isTimelineAvailable: Bool,
+        timelineSession: CleaningTimelineSession,
         onTimelinePreviewChange: @escaping (Bool) -> Void,
         onShowTimeline: @escaping () -> Void,
         onImmersiveChange: @escaping (Bool) -> Void,
@@ -228,6 +237,8 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         self.onToggleFavorite = onToggleFavorite
         self.onAddToAlbum = onAddToAlbum
         self.timelineTargetColumn = min(max(timelineTargetColumn, 0), 2)
+        self.isTimelineAvailable = isTimelineAvailable
+        self.timelineSession = timelineSession
         self.onTimelinePreviewChange = onTimelinePreviewChange
         self.onShowTimeline = onShowTimeline
         self.onImmersiveChange = onImmersiveChange
@@ -241,34 +252,46 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         self.favoriteIdentifiers = favoriteIdentifiers
         self.completionContent = completionContent
 
-        let requestedAnimation = selectionAnimationRequest.flatMap { request in
-            request.token != lastSelectionAnimationToken
-                && request.assetIdentifier == selectedAssetID ? request : nil
+        let previousSelectionID = self.selectedAssetID
+        let pendingAnimation = selectionAnimationRequest.flatMap { request in
+            request.token != lastSelectionAnimationToken ? request : nil
         }
         let assetsChanged = self.assets.map(\.localIdentifier) != assets.map(\.localIdentifier)
         self.assets = assets
         assetIndexByID = Dictionary(
             uniqueKeysWithValues: assets.enumerated().map { ($0.element.localIdentifier, $0.offset) }
         )
-        if requestedAnimation != nil, isTransitioning {
+        if pendingAnimation != nil, isTransitioning {
             finishTransitionForNewGestureIfNeeded()
         }
-        let previousSelectionID = self.selectedAssetID
         let selectionChanged = previousSelectionID != selectedAssetID
         if selectionChanged, viewingScale != 1 || timelineTransitionProgress != 0 {
             resetViewingState(animated: false)
             resetTimelineTransition(animated: false, keepPreview: false)
         }
-        if selectionChanged {
-            if let requestedAnimation,
-               !previousSelectionID.isEmpty,
-               pageIndex(for: selectedAssetID) != nil,
-               view.window != nil {
+
+        // A deletion undo publishes the restored asset and the new selection
+        // as separate SwiftUI updates under load. Keep the request pending
+        // until the target is actually present in this UIKit data source, then
+        // run the same animator for adjacent and distant restores alike.
+        if let pendingAnimation,
+           pendingAnimation.assetIdentifier != previousSelectionID,
+           pageIndex(for: pendingAnimation.assetIdentifier) != nil,
+           !previousSelectionID.isEmpty,
+           view.window != nil {
+            reconcilePages()
+            lastSelectionAnimationToken = pendingAnimation.token
+            animateSelectionUndo(pendingAnimation)
+            return
+        }
+        if let pendingAnimation,
+           pageIndex(for: pendingAnimation.assetIdentifier) == nil {
+            if assetsChanged || selectionChanged {
                 reconcilePages()
-                lastSelectionAnimationToken = requestedAnimation.token
-                animateSelectionUndo(requestedAnimation)
-                return
             }
+            return
+        }
+        if selectionChanged {
             if !isTransitioning,
                !previousSelectionID.isEmpty,
                let sourceIndex = pageIndex(for: previousSelectionID),
@@ -276,9 +299,6 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                abs(destinationIndex - sourceIndex) == 1,
                view.window != nil {
                 reconcilePages()
-                if let requestedAnimation {
-                    lastSelectionAnimationToken = requestedAnimation.token
-                }
                 animateExternalSelection(
                     to: selectedAssetID,
                     direction: destinationIndex > sourceIndex ? 1 : -1
@@ -290,12 +310,6 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             resetMotion()
             self.selectedAssetID = selectedAssetID
             session.commitSelection(selectedAssetID)
-        }
-        if let requestedAnimation {
-            lastSelectionAnimationToken = requestedAnimation.token
-            DispatchQueue.main.async { [weak self] in
-                self?.onSelectionAnimationFinished?(requestedAnimation.token)
-            }
         }
         if assetsChanged || selectionChanged {
             reconcilePages()
@@ -312,6 +326,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         animator?.stopAnimation(true)
         inspectionAnimator?.stopAnimation(true)
         animator = nil
+        timelineSession?.setProgress(0)
         setTimelinePreviewVisible(false)
         session.cancelTransition()
         cardViews.values.forEach { $0.tearDown() }
@@ -329,7 +344,14 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        gestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIPinchGestureRecognizer
+        // A two-finger inspection must own the touch stream. Allowing the
+        // one-finger review pan to run simultaneously is what made a pinch
+        // occasionally become a vertical action at the edge of the image.
+        if (gestureRecognizer is UIPanGestureRecognizer && otherGestureRecognizer is UIPinchGestureRecognizer)
+            || (gestureRecognizer is UIPinchGestureRecognizer && otherGestureRecognizer is UIPanGestureRecognizer) {
+            return false
+        }
+        return false
     }
 
     @objc private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
@@ -361,7 +383,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             inspectionAnimator?.stopAnimation(true)
             resetMotion()
             pinchStartScale = viewingScale
-            pinchStartTranslation = viewingTranslation
+            pinchStartRawTranslation = rawViewingTranslation
             pinchStartLocation = recognizer.location(in: view)
             pinchIntent = CleaningMotionGeometry.resolvedPinchIntent(
                 current: .undetermined,
@@ -369,6 +391,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                 gestureScale: 1
             )
             timelineTransitionProgress = 0
+            timelineSession?.setProgress(0)
         case .changed:
             if pinchIntent == .undetermined {
                 pinchIntent = CleaningMotionGeometry.resolvedPinchIntent(
@@ -376,9 +399,18 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                     startingScale: pinchStartScale,
                     gestureScale: recognizer.scale
                 )
-                if pinchIntent == .timeline {
+                if pinchIntent == .timeline && isTimelineAvailable {
                     setTimelinePreviewVisible(true)
+                    timelineSession?.setProgress(timelineTransitionProgress)
                     setImmersive(false)
+                } else if pinchIntent == .timeline {
+                    // The initial session filter is only a fast image snapshot;
+                    // do not turn it into a timeline until the all-library
+                    // chronological fetch has completed.
+                    pinchIntent = .undetermined
+                    timelineTransitionProgress = 0
+                    timelineSession?.setProgress(0)
+                    return
                 } else if pinchIntent == .undetermined {
                     return
                 }
@@ -395,6 +427,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             if pinchIntent == .timeline {
                 let rawScale = min(max(recognizer.scale, 0.55), 1)
                 timelineTransitionProgress = min(max((1 - rawScale) / 0.45, 0), 1)
+                timelineSession?.setProgress(timelineTransitionProgress)
                 viewingScale = 1
                 viewingTranslation = CGPoint(
                     x: (currentRelative.x - startRelative.x) * (1 - timelineTransitionProgress),
@@ -407,17 +440,18 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                 let targetScale = min(max(pinchStartScale * recognizer.scale, 1), 4)
                 let ratio = targetScale / max(pinchStartScale, 0.001)
                 let followingTranslation = CGPoint(
-                    x: pinchStartTranslation.x + currentRelative.x - startRelative.x
+                    x: pinchStartRawTranslation.x + currentRelative.x - startRelative.x
                         + startRelative.x * (1 - ratio),
-                    y: pinchStartTranslation.y + currentRelative.y - startRelative.y
+                    y: pinchStartRawTranslation.y + currentRelative.y - startRelative.y
                         + startRelative.y * (1 - ratio)
                 )
                 viewingScale = targetScale
-                viewingTranslation = clampedViewingTranslation(
-                    followingTranslation,
+                rawViewingTranslation = followingTranslation
+                viewingTranslation = rubberBandedViewingTranslation(
+                    rawViewingTranslation,
                     scale: targetScale
                 )
-                setImmersive(targetScale > 1.03)
+                setImmersive(targetScale > 1.015)
             }
             applyTransformsWithoutAnimation()
         case .ended:
@@ -427,18 +461,17 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                 } else {
                     resetTimelineTransition(animated: true, keepPreview: false)
                 }
-            } else if viewingScale < 1.03 {
+            } else if viewingScale < 1.015 {
                 resetViewingState(animated: true)
             } else {
                 viewingScale = min(viewingScale, 4)
-                viewingTranslation = clampedViewingTranslation(viewingTranslation, scale: viewingScale)
                 setImmersive(true)
-                applyTransformsWithoutAnimation()
+                settleViewingTranslationIfNeeded()
             }
         case .cancelled, .failed:
             if pinchIntent == .timeline {
                 resetTimelineTransition(animated: true, keepPreview: false)
-            } else if viewingScale < 1.03 {
+            } else if viewingScale < 1.015 {
                 resetViewingState(animated: true)
             }
         default:
@@ -453,7 +486,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             inspectionAnimator?.stopAnimation(true)
             applyTransformsWithoutAnimation()
             if viewingScale > 1 {
-                inspectionPanStart = viewingTranslation
+                inspectionPanStart = rawViewingTranslation
                 return
             }
             deliveredHapticDirection = nil
@@ -463,8 +496,12 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             guard !isTransitioning else { return }
             if viewingScale > 1 {
                 let value = recognizer.translation(in: view)
-                viewingTranslation = clampedViewingTranslation(
-                    CGPoint(x: inspectionPanStart.x + value.x, y: inspectionPanStart.y + value.y),
+                rawViewingTranslation = CGPoint(
+                    x: inspectionPanStart.x + value.x,
+                    y: inspectionPanStart.y + value.y
+                )
+                viewingTranslation = rubberBandedViewingTranslation(
+                    rawViewingTranslation,
                     scale: viewingScale
                 )
                 applyTransformsWithoutAnimation()
@@ -483,8 +520,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         case .ended:
             guard !isTransitioning else { return }
             if viewingScale > 1 {
-                viewingTranslation = clampedViewingTranslation(viewingTranslation, scale: viewingScale)
-                applyTransformsWithoutAnimation()
+                settleViewingTranslationIfNeeded()
                 return
             }
             if axis != .undetermined {
@@ -795,6 +831,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         pinchIntent = .undetermined
         viewingScale = 1
         viewingTranslation = .zero
+        rawViewingTranslation = .zero
         setImmersive(false)
         guard animated, !UIAccessibility.isReduceMotionEnabled else {
             applyTransformsWithoutAnimation()
@@ -810,12 +847,13 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private func finishTimelineTransition() {
         inspectionAnimator?.stopAnimation(true)
         timelineTransitionProgress = 1
+        timelineSession?.setProgress(1)
         viewingTranslation = .zero
         let completion = { [weak self] in
             guard let self else { return }
             self.onShowTimeline?()
             self.isTimelinePreviewVisible = false
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) { [weak self] in
                 guard let self else { return }
                 self.timelineTransitionProgress = 0
                 self.pinchIntent = .undetermined
@@ -840,6 +878,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private func resetTimelineTransition(animated: Bool, keepPreview: Bool) {
         inspectionAnimator?.stopAnimation(true)
         timelineTransitionProgress = 0
+        timelineSession?.setProgress(0)
         viewingTranslation = .zero
         pinchIntent = .undetermined
         let completion = { [weak self] in
@@ -883,12 +922,52 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
 
     private func clampedViewingTranslation(_ value: CGPoint, scale: CGFloat) -> CGPoint {
         guard scale > 1 else { return .zero }
-        let horizontalLimit = view.bounds.width * (scale - 1) * 0.5 + 44
-        let verticalLimit = view.bounds.height * (scale - 1) * 0.5 + 44
+        let limits = viewingTranslationLimits(scale: scale)
         return CGPoint(
-            x: min(max(value.x, -horizontalLimit), horizontalLimit),
-            y: min(max(value.y, -verticalLimit), verticalLimit)
+            x: min(max(value.x, -limits.x), limits.x),
+            y: min(max(value.y, -limits.y), limits.y)
         )
+    }
+
+    private func rubberBandedViewingTranslation(_ value: CGPoint, scale: CGFloat) -> CGPoint {
+        guard scale > 1 else { return .zero }
+        let limits = viewingTranslationLimits(scale: scale)
+        return CGPoint(
+            x: rubberBanded(value.x, limit: limits.x),
+            y: rubberBanded(value.y, limit: limits.y)
+        )
+    }
+
+    private func viewingTranslationLimits(scale: CGFloat) -> CGPoint {
+        CGPoint(
+            x: view.bounds.width * (scale - 1) * 0.5,
+            y: view.bounds.height * (scale - 1) * 0.5
+        )
+    }
+
+    private func rubberBanded(_ value: CGFloat, limit: CGFloat) -> CGFloat {
+        let magnitude = abs(value)
+        guard magnitude > limit else { return value }
+        let excess = magnitude - limit
+        let resisted = limit + (1 - 1 / (excess * 0.012 + 1)) * 72
+        return value < 0 ? -resisted : resisted
+    }
+
+    private func settleViewingTranslationIfNeeded() {
+        let target = clampedViewingTranslation(rawViewingTranslation, scale: viewingScale)
+        rawViewingTranslation = target
+        guard abs(viewingTranslation.x - target.x) > 0.5
+                || abs(viewingTranslation.y - target.y) > 0.5 else {
+            viewingTranslation = target
+            applyTransformsWithoutAnimation()
+            return
+        }
+        viewingTranslation = target
+        let animator = UIViewPropertyAnimator(duration: 0.24, dampingRatio: 0.9) {
+            self.applyTransforms()
+        }
+        inspectionAnimator = animator
+        animator.startAnimation()
     }
 
     private func resetMotion() {

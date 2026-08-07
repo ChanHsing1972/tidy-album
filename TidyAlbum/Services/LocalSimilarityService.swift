@@ -1,6 +1,18 @@
 import Photos
 import UIKit
 
+struct SimilarPhotoGroup: Identifiable {
+    let id: String
+    let assets: [PHAsset]
+
+    init(assets: [PHAsset]) {
+        self.assets = assets.sorted {
+            ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
+        }
+        id = self.assets.map(\.localIdentifier).sorted().joined(separator: "|")
+    }
+}
+
 /// A small, on-device visual fingerprint scanner used for the Similar Photos
 /// collection. It never exports image data and only keeps compact fingerprints.
 @MainActor
@@ -26,6 +38,13 @@ final class LocalSimilarityService {
         in assets: [PHAsset],
         progress: @escaping @MainActor (Double) -> Void
     ) async -> [PHAsset] {
+        await similarGroups(in: assets, progress: progress).flatMap(\.assets)
+    }
+
+    func similarGroups(
+        in assets: [PHAsset],
+        progress: @escaping @MainActor (Double) -> Void
+    ) async -> [SimilarPhotoGroup] {
         guard assets.count > 1 else { return [] }
         var values = [Fingerprint?](repeating: nil, count: assets.count)
         for index in assets.indices {
@@ -112,8 +131,11 @@ final class LocalSimilarityService {
         }
         return groups.values
             .filter { $0.count > 1 }
-            .flatMap { $0 }
-            .sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
+            .map(SimilarPhotoGroup.init)
+            .sorted {
+                ($0.assets.first?.creationDate ?? .distantPast)
+                    > ($1.assets.first?.creationDate ?? .distantPast)
+            }
     }
 
     private nonisolated static func fingerprint(for asset: PHAsset) async -> Fingerprint? {

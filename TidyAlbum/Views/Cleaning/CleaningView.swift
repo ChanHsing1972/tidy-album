@@ -24,10 +24,12 @@ struct CleaningView: View {
     @State private var showsTimeline = false
     @State private var isTimelinePreviewVisible = false
     @State private var timelineAssets: [PHAsset] = []
+    @State private var hasLoadedFullTimelineAssets = false
     @State private var isInspecting = false
     @State private var completionControlsHidden = false
     @State private var showsShareError = false
     @State private var renderingSession = CleaningUIKitSession()
+    @State private var timelineSession = CleaningTimelineSession()
     @State private var selectionAnimationRequest: CleaningSelectionAnimationRequest?
 
     private var currentIndex: Int? {
@@ -67,14 +69,14 @@ struct CleaningView: View {
                 )
                     .ignoresSafeArea()
 
-                if isTimelinePreviewVisible || showsTimeline {
+                if hasLoadedFullTimelineAssets && !availableTimelineAssets.isEmpty {
                     CleaningTimelineView(
+                        session: timelineSession,
                         assets: availableTimelineAssets,
                         selectedAssetID: selectedAssetID,
                         settings: settings,
                         onSelect: selectTimelineAsset
                     )
-                    .transition(.opacity)
                     .allowsHitTesting(showsTimeline)
                     .zIndex(1)
                 }
@@ -98,12 +100,16 @@ struct CleaningView: View {
                             onToggleFavorite: manager.markFavorite,
                             onAddToAlbum: { albumSelection = AlbumAssetSelection(asset: $0) },
                             timelineTargetColumn: timelineTargetColumn,
+                            isTimelineAvailable: hasLoadedFullTimelineAssets,
+                            timelineSession: timelineSession,
                             onTimelinePreviewChange: { visible in
                                 withAnimation(.easeOut(duration: 0.14)) {
                                     isTimelinePreviewVisible = visible
                                 }
                             },
                             onShowTimeline: {
+                                guard hasLoadedFullTimelineAssets else { return }
+                                timelineSession.setVisible(true)
                                 withAnimation(.easeOut(duration: 0.12)) {
                                     showsTimeline = true
                                     isTimelinePreviewVisible = false
@@ -128,14 +134,21 @@ struct CleaningView: View {
                 .zIndex(2)
             }
             .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbarBackground(.hidden, for: .bottomBar)
             .toolbar { toolbar }
         }
         .tint(.primary)
-        .onAppear { selectInitialAsset() }
+        .onAppear {
+            selectInitialAsset()
+            // A first local snapshot makes the timeline available immediately;
+            // the full PhotoKit fetch below replaces it without changing the
+            // selected identifier or the centered scroll position.
+            if timelineAssets.isEmpty { timelineAssets = manager.assets }
+        }
         .task {
-            guard timelineAssets.isEmpty else { return }
-            timelineAssets = await manager.fetchCalendarAssets()
+            guard !hasLoadedFullTimelineAssets else { return }
+            let fetched = await manager.fetchCalendarAssets()
+            timelineAssets = fetched
+            hasLoadedFullTimelineAssets = true
         }
         .sheet(item: $detailsSelection) { selection in
             AssetDetailsView(asset: selection.asset, settings: settings).id(selection.id)
@@ -327,6 +340,7 @@ struct CleaningView: View {
     }
 
     private func closeTimeline() {
+        timelineSession.setVisible(false)
         withAnimation(.easeInOut(duration: 0.16)) {
             showsTimeline = false
             isTimelinePreviewVisible = false
@@ -404,6 +418,24 @@ private struct AnimatedProgressBar: View {
     }
 }
 
+private struct CleaningToolbarIconButtonStyle: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        } else {
+            content
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+    }
+}
+
 private struct CleaningAssetInfoIslandButton: View {
     let asset: PHAsset?
     @ObservedObject var settings: SettingsStore
@@ -459,7 +491,7 @@ private struct CleaningAssetInfoIslandButton: View {
         // cached island continues drawing outside this zero-width slot for its
         // opacity fade. This prevents the system from overflowing Share into
         // an ellipsis menu on compact widths.
-        .frame(width: asset == nil ? 0 : 210)
+        .frame(width: 210)
         .onChange(of: asset?.localIdentifier, initial: true) { _, _ in
             if let asset {
                 // Returning from the completion page keeps the previous asset

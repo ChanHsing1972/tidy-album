@@ -14,6 +14,11 @@ struct CleanHomeView: View {
     @State private var showsTrash = false
     @State private var showsSummary = false
     @State private var presentsSummaryAfterCleaning = false
+    @State private var selectedSimilarityGroup: SimilarPhotoGroup?
+
+    private var previewIdentity: String {
+        manager.assets.prefix(4).map(\.localIdentifier).joined(separator: "|")
+    }
 
     var body: some View {
         let _ = inject
@@ -44,6 +49,13 @@ struct CleanHomeView: View {
                 onHome: { showsSummary = false }
             )
         }
+        .sheet(item: $selectedSimilarityGroup) { group in
+            SimilarGroupComparisonView(
+                group: group,
+                manager: manager,
+                settings: settings
+            )
+        }
     }
 
     @ToolbarContentBuilder private var homeToolbar: some ToolbarContent {
@@ -62,10 +74,10 @@ struct CleanHomeView: View {
 
     private var cleanContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 16) {
                 if manager.isLimited { limitedAccessBanner }
                 reviewStage
-//                libraryOverview
+                if manager.currentFilter == .similar { similarGroupsSection }
                 collectionSection
             }
             .frame(maxWidth: 760)
@@ -78,6 +90,7 @@ struct CleanHomeView: View {
             manager.fetchPhotos()
             manager.refreshLibraryOverview()
         }
+        .task { manager.prepareSimilarityScan() }
     }
 
     private var libraryCount: Int {
@@ -92,27 +105,36 @@ struct CleanHomeView: View {
 
     private var reviewStage: some View {
         ZStack(alignment: .bottom) {
-            CleaningPreviewMosaic(assets: Array(manager.assets.prefix(4)))
-                .frame(height: 224)
+            ZStack {
+                CleaningPreviewMosaic(assets: Array(manager.assets.prefix(4)))
+                    .id(previewIdentity)
+                    .transition(.opacity)
+            }
+            .animation(.easeInOut(duration: 0.32), value: previewIdentity)
+            .frame(height: 224)
 
             HStack(alignment: .center, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(localizedTitle(for: manager.currentFilter))
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
-                    Text("\(manager.cleaningCandidateCount.formatted()) \(settings.t("Items"))")
+                    Text(reviewStageSubtitle)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
-                Button(action: beginCleaning) {
-                    Label(settings.t("Start Cleaning"), systemImage: "play.fill")
+                Button(action: reviewStageAction) {
+                    Label(
+                        settings.t(manager.currentFilter == .similar ? "Compare" : "Start Cleaning"),
+                        systemImage: manager.currentFilter == .similar
+                            ? "rectangle.split.2x1"
+                            : "play.fill"
+                    )
                         .font(.subheadline.weight(.semibold))
                 }
                 .modifier(HomePrimaryButtonStyle())
                 .buttonBorderShape(.capsule)
-                .disabled(!manager.canBeginSession)
-                .accessibilityValue("\(manager.cleaningCandidateCount) \(settings.t("Items"))")
+                .accessibilityValue(reviewStageSubtitle)
             }
             .padding(.horizontal, 16)
             .frame(height: 64)
@@ -126,60 +148,56 @@ struct CleanHomeView: View {
         .accessibilityElement(children: .contain)
     }
 
-    private var libraryOverview: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(settings.t("Library Overview"))
-                .font(.headline)
-            HStack(alignment: .top, spacing: 0) {
-                overviewMetric(
-                    value: libraryCount.formatted(),
-                    title: settings.t("Photos and videos")
-                )
-                Divider().frame(height: 48)
-                overviewMetric(
-                    value: manager.trashBin.count.formatted(),
-                    title: settings.t("Pending deletion")
-                )
-                Divider().frame(height: 48)
-                overviewMetric(
-                    value: formattedPendingBytes,
-                    title: settings.t("Space Selected")
-                )
+    // MARK: Collections
+
+    @ViewBuilder private var similarGroupsSection: some View {
+        if let progress = manager.similarityProgress {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label(settings.t("Finding Similar Photos"), systemImage: "sparkle.magnifyingglass")
+                        .font(.headline)
+                    Spacer()
+                    Text(progress, format: .percent.precision(.fractionLength(0)))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                ProgressView(value: progress)
+                Text(settings.t("Similarity Scan Background Detail"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else if manager.similarityGroups.isEmpty {
+            ContentUnavailableView(
+                settings.t("No Similar Groups"),
+                systemImage: "square.on.square.intersection.dashed",
+                description: Text(settings.t("No Similar Groups Detail"))
+            )
+            .frame(maxWidth: .infinity, minHeight: 180)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(settings.t("Similar Groups"))
+                        .font(.title3.bold())
+                    Spacer()
+                    Text(manager.similarityGroups.count.formatted())
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(manager.similarityGroups) { group in
+                    Button { selectedSimilarityGroup = group } label: {
+                        SimilarGroupRow(group: group, settings: settings)
+                    }
+                    .buttonStyle(ApplePressButtonStyle())
+                }
             }
         }
     }
-
-    private func overviewMetric(value: String, title: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.title3.bold().monospacedDigit())
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .contentTransition(.numericText())
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: Collections
 
     private var collectionSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if manager.currentFilter == .similar, let progress = manager.similarityProgress {
-                ProgressView(value: progress) {
-                    Text(settings.t("Finding Similar Photos"))
-                        .font(.subheadline.weight(.semibold))
-                } currentValueLabel: {
-                    Text(progress, format: .percent.precision(.fractionLength(0)))
-                        .font(.caption.monospacedDigit())
-                }
-            }
-
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                 spacing: 12
@@ -222,6 +240,25 @@ struct CleanHomeView: View {
         presentsSummaryAfterCleaning = false
         manager.beginSession()
         showsCleaning = true
+    }
+
+    private var reviewStageSubtitle: String {
+        if manager.currentFilter == .similar {
+            return String(
+                format: settings.t("X Groups Y Photos"),
+                manager.similarityGroups.count,
+                manager.assets.count
+            )
+        }
+        return "\(manager.cleaningCandidateCount.formatted()) \(settings.t("Items"))"
+    }
+
+    private func reviewStageAction() {
+        if manager.currentFilter == .similar {
+            selectedSimilarityGroup = manager.similarityGroups.first
+        } else {
+            beginCleaning()
+        }
     }
 
     private func cleaningDidDismiss() {
@@ -273,7 +310,7 @@ private struct CleaningPreviewMosaic: View {
 
     var body: some View {
         GeometryReader { proxy in
-            HStack(spacing: 2) {
+            HStack(spacing: 0) {
                 tile(at: 0)
                     .frame(width: proxy.size.width * 0.61)
                 VStack(spacing: 0) {
@@ -305,6 +342,165 @@ private struct CleaningPreviewMosaic: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+}
+
+private struct SimilarGroupRow: View {
+    let group: SimilarPhotoGroup
+    @ObservedObject var settings: SettingsStore
+
+    var body: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 3) {
+                ForEach(Array(group.assets.prefix(4)), id: \.localIdentifier) { asset in
+                    AssetMediaView(asset: asset, contentMode: .fill, showsVideoBadge: false)
+                        .frame(width: 58, height: 58)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(format: settings.t("X Similar Photos"), group.assets.count))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                if let date = group.assets.first?.creationDate {
+                    Text(settings.fullDate(date))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text(settings.t("Tap to Compare"))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.tint)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct SimilarGroupComparisonView: View {
+    let group: SimilarPhotoGroup
+    @ObservedObject var manager: PhotoManager
+    @ObservedObject var settings: SettingsStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var markedIDs: Set<String> = []
+
+    private var suggestedKeeper: PHAsset? {
+        group.assets.max { lhs, rhs in
+            let leftPixels = lhs.pixelWidth * lhs.pixelHeight
+            let rightPixels = rhs.pixelWidth * rhs.pixelHeight
+            if leftPixels != rightPixels { return leftPixels < rightPixels }
+            return (lhs.creationDate ?? .distantPast) < (rhs.creationDate ?? .distantPast)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(settings.t("Compare Photos"))
+                        .font(.title2.bold())
+                    Text(String(format: settings.t("X Similar Photos"), group.assets.count))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(group.assets, id: \.localIdentifier) { asset in
+                            comparisonCard(asset)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+
+                HStack(spacing: 10) {
+                    Button(settings.t("Select Suggested")) {
+                        markedIDs = Set(group.assets.compactMap { asset in
+                            asset.localIdentifier == suggestedKeeper?.localIdentifier ? nil : asset.localIdentifier
+                        })
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    Spacer(minLength: 0)
+                    Text(String(format: settings.t("Selected X"), markedIDs.count))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                Button {
+                    let targets = group.assets.filter { markedIDs.contains($0.localIdentifier) }
+                    manager.queueSimilarPhotosForDeletion(targets)
+                    dismiss()
+                } label: {
+                    Label(
+                        String(format: settings.t("Move X to Pending Deletion"), markedIDs.count),
+                        systemImage: "trash"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .disabled(markedIDs.isEmpty)
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .navigationTitle(settings.t("Similar Photos"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(settings.t("Done")) { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func comparisonCard(_ asset: PHAsset) -> some View {
+        let isMarked = markedIDs.contains(asset.localIdentifier)
+        let isSuggested = suggestedKeeper?.localIdentifier == asset.localIdentifier
+        return Button {
+            if isMarked {
+                markedIDs.remove(asset.localIdentifier)
+            } else {
+                markedIDs.insert(asset.localIdentifier)
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack(alignment: .topTrailing) {
+                    AssetMediaView(asset: asset, contentMode: .fit, showsVideoBadge: true)
+                        .frame(width: 250, height: 300)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Image(systemName: isMarked ? "trash.circle.fill" : "circle")
+                        .font(.title2)
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(isMarked ? .white : .secondary, isMarked ? .red : .white)
+                        .padding(10)
+                }
+                Text(isSuggested ? settings.t("Suggested Best") : settings.t("Keep or Mark"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(isMarked ? Color.red : (isSuggested ? Color.accentColor : Color.primary))
+                if let date = asset.creationDate {
+                    Text(settings.fullDate(date))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text("\(asset.pixelWidth) × \(asset.pixelHeight)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 250, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isMarked ? settings.t("Marked for Deletion") : settings.t("Keep"))
     }
 }
 

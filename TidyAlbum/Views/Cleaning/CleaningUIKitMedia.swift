@@ -63,7 +63,7 @@ final class CleaningCardPageView: UIView {
             y: (bounds.height - mediaSize.height) * 0.5 - 28,
             width: mediaSize.width,
             height: mediaSize.height
-        ).integral
+        )
         let targetSide = timelineTargetSide > 0 ? timelineTargetSide : fittedFrame.width
         let targetFrame = CGRect(
             x: (timelineTargetCenterX ?? bounds.midX) - targetSide * 0.5,
@@ -77,8 +77,13 @@ final class CleaningCardPageView: UIView {
             y: fittedFrame.minY + (targetFrame.minY - fittedFrame.minY) * progress,
             width: fittedFrame.width + (targetFrame.width - fittedFrame.width) * progress,
             height: fittedFrame.height + (targetFrame.height - fittedFrame.height) * progress
-        ).integral
-        shadowView.frame = cardFrame
+        )
+        // Writing frame while an ancestor has a non-identity transform can
+        // force UIKit to derive new bounds during an interactive pinch. Keep
+        // the geometry in bounds/center form so scale and translation remain
+        // presentation-only and do not feed back into layout.
+        shadowView.bounds = CGRect(origin: .zero, size: cardFrame.size)
+        shadowView.center = CGPoint(x: cardFrame.midX, y: cardFrame.midY)
         clippingView.frame = shadowView.bounds
         mediaView.frame = clippingView.bounds
         actionTintView.frame = clippingView.bounds
@@ -257,8 +262,19 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
     private var livePhotoView: PHLivePhotoView?
     private var hasFinalLivePhoto = false
     private var isLivePhotoPlaying = false
+    private var isLongPressPlaying = false
     private var autoPlayLivePhotos = true
     private var isInteractivelyResizing = false
+    private lazy var livePhotoLongPress: UILongPressGestureRecognizer = {
+        let recognizer = UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(handleLivePhotoLongPress(_:))
+        )
+        recognizer.minimumPressDuration = 0.34
+        recognizer.allowableMovement = 12
+        recognizer.cancelsTouchesInView = false
+        return recognizer
+    }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -270,6 +286,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         addSubview(imageView)
         addSubview(videoBadge)
         addSubview(livePhotoBadge)
+        addGestureRecognizer(livePhotoLongPress)
     }
 
     required init?(coder: NSCoder) {
@@ -490,8 +507,38 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
                 self.hasFinalLivePhoto = !degraded
                 if !degraded, self.autoPlayLivePhotos {
                     self.livePhotoView?.startPlayback(with: .full)
+                } else if !degraded, self.isLongPressPlaying {
+                    self.livePhotoView?.startPlayback(with: .full)
                 }
             }
+        }
+    }
+
+    @objc private func handleLivePhotoLongPress(_ recognizer: UILongPressGestureRecognizer) {
+        guard isActive,
+              asset?.mediaSubtypes.contains(.photoLive) == true else { return }
+        switch recognizer.state {
+        case .began:
+            isLongPressPlaying = true
+            if let asset {
+                startLivePhoto(asset)
+            }
+            if hasFinalLivePhoto {
+                livePhotoView?.startPlayback(with: .full)
+            }
+        case .ended, .cancelled, .failed:
+            isLongPressPlaying = false
+            guard !autoPlayLivePhotos else { return }
+            livePhotoView?.stopPlayback()
+            isLivePhotoPlaying = false
+            UIView.animate(
+                withDuration: 0.12,
+                delay: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut],
+                animations: { self.imageView.alpha = 1 }
+            )
+        default:
+            break
         }
     }
 
@@ -583,6 +630,7 @@ private final class CleaningAssetMediaView: UIView, PHLivePhotoViewDelegate {
         livePhotoView = nil
         hasFinalLivePhoto = false
         isLivePhotoPlaying = false
+        isLongPressPlaying = false
         imageView.alpha = 1
     }
 }

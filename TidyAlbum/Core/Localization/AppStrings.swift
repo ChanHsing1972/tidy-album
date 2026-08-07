@@ -74,6 +74,13 @@ enum AppStrings {
         "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑快速删除，下滑添加收藏，左右滑动即可轻松浏览所有照片。",
         "Private & Local": "绝对私密", "Everything stays on your device. No data is ever uploaded.": "所有数据仅保留在本地设备，绝不会上传至任何服务器。",
         "Random Review": "随机抽取", "Shuffle your library for a fresh, effortless review every time.": "随机打乱图库，每次都能轻松发现不同的照片。",
+        "Compare": "对比", "Similar Groups": "相似组", "Compare Photos": "对比照片",
+        "Similarity Scan Background Detail": "扫描会在本机后台完成，完成后可直接查看每一组对比结果。",
+        "No Similar Groups": "暂未发现相似组", "No Similar Groups Detail": "本机扫描完成后，相似照片会按组显示在这里。",
+        "X Groups Y Photos": "%d 组 · %d 张照片", "X Similar Photos": "%d 张相似照片",
+        "Tap to Compare": "点击进入对比", "Select Suggested": "选择建议项",
+        "Selected X": "已选择 %d 张", "Move X to Pending Deletion": "将 %d 张移入待删除",
+        "Suggested Best": "建议保留", "Keep or Mark": "点击选择待删除", "Keep": "保留",
         "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时直观查看累计清理数，以及成功释放的存储空间。", "Continue": "继续", "Welcome to\nTidyAlbum": "欢迎使用\nTidyAlbum", "Calendar": "日历", "Photo Calendar": "照片日历", "Photos by Month": "按月份查看照片", "Photos by Date": "按时间浏览", "No Dated Photos": "没有包含拍摄日期的照片", "Scan on Device": "在本机扫描", "Finding Similar Photos": "正在识别相似照片", "Similar Photo Privacy": "图像指纹仅在本机生成和比较，不会上传照片。", "Choose Album": "选择相簿", "Albums": "相簿", "New Album": "新建相簿", "Album Name": "相簿名称", "Add": "加入", "Unable to Add to Album": "无法加入相簿", "No Albums": "暂无相簿", "Create an album to organize this photo.": "新建一个相簿来整理这张照片。"
     ]
 }

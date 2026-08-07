@@ -34,6 +34,7 @@ final class PhotoManager: NSObject, ObservableObject {
     @Published private(set) var sessionSummary = CleaningSessionSummary()
     @Published private(set) var viewedAssetCount = 0
     @Published private(set) var similarityProgress: Double?
+    @Published private(set) var similarityGroups: [SimilarPhotoGroup] = []
     @Published var currentFilter: PhotoFilter = .all
     @Published private var favoriteStates: [String: Bool] = [:]
 
@@ -53,6 +54,8 @@ final class PhotoManager: NSObject, ObservableObject {
     private var hasRestoredPendingQueue = false
     private var overviewRefreshTask: Task<Void, Never>?
     private var photoFetchTask: Task<Void, Never>?
+    private var similarityScanTask: Task<Void, Never>?
+    private var hasCompletedSimilarityScan = false
     private var persistedViewedIdentifiers: Set<String> = []
     private let pendingDeletionKey = "photoManager.pendingDeletionIdentifiers.v1"
     private let viewedIdentifiersKey = "photoManager.viewedIdentifiers.v1"
@@ -95,6 +98,7 @@ final class PhotoManager: NSObject, ObservableObject {
     deinit {
         overviewRefreshTask?.cancel()
         photoFetchTask?.cancel()
+        similarityScanTask?.cancel()
         photoService.unregisterChangeObserver(self)
     }
 
@@ -131,32 +135,32 @@ final class PhotoManager: NSObject, ObservableObject {
     func setFilter(_ filter: PhotoFilter) {
         guard filter != currentFilter else { return }
         currentFilter = filter
-        if filter != .similar { similarityProgress = nil }
+        if filter == .similar {
+            assets = []
+            loadedFilter = nil
+        } else {
+            similarityProgress = nil
+        }
         fetchPhotos()
     }
 
     func fetchPhotos() {
         guard isAuthorized else { return }
+        if currentFilter == .similar {
+            prepareSimilarityScan()
+            return
+        }
         isLoading = true
         loadedFilter = nil
         fetchRevision += 1
         let revision = fetchRevision
         let requestedFilter = currentFilter
-        if requestedFilter == .similar { similarityProgress = 0 }
         photoFetchTask?.cancel()
         photoFetchTask = Task { [weak self] in
             guard let self else { return }
             let source = await self.photoService.fetchAssets(filter: requestedFilter)
             guard !Task.isCancelled else { return }
-            let fetched: [PHAsset]
-            if requestedFilter == .similar {
-                fetched = await LocalSimilarityService.shared.similarAssets(in: source) { progress in
-                    guard revision == self.fetchRevision else { return }
-                    self.similarityProgress = progress
-                }
-            } else {
-                fetched = source
-            }
+            let fetched = source
             guard !Task.isCancelled else { return }
             let trashIDs = Set(self.trashBin.map(\.localIdentifier))
             let available = fetched.filter { !trashIDs.contains($0.localIdentifier) }
@@ -167,8 +171,53 @@ final class PhotoManager: NSObject, ObservableObject {
             self.filterCounts[requestedFilter] = available.count
             self.loadedFilter = requestedFilter
             self.isLoading = false
-            if requestedFilter == .similar { self.similarityProgress = nil }
         }
+    }
+
+    /// Starts the on-device scan as soon as the library is available. The
+    /// result is grouped and cached, so opening the Similar Photos card never
+    /// turns into a second blocking scan.
+    func prepareSimilarityScan() {
+        guard isAuthorized,
+              !hasCompletedSimilarityScan,
+              similarityScanTask == nil else {
+            if currentFilter == .similar, hasCompletedSimilarityScan {
+                applySimilarityGroupsToCurrentFilter()
+            }
+            return
+        }
+        isLoading = currentFilter == .similar
+        if currentFilter == .similar { loadedFilter = nil }
+        similarityProgress = 0
+        similarityScanTask = Task { [weak self] in
+            guard let self else { return }
+            let source = await self.photoService.fetchAssets(filter: .similar)
+            guard !Task.isCancelled else { return }
+            let groups = await LocalSimilarityService.shared.similarGroups(in: source) { progress in
+                self.similarityProgress = progress
+            }
+            guard !Task.isCancelled else { return }
+            self.similarityGroups = groups
+            self.hasCompletedSimilarityScan = true
+            self.similarityProgress = nil
+            self.filterCounts[.similar] = groups.reduce(0) { $0 + $1.assets.count }
+            if self.currentFilter == .similar {
+                self.applySimilarityGroupsToCurrentFilter()
+            }
+            self.similarityScanTask = nil
+        }
+    }
+
+    private func applySimilarityGroupsToCurrentFilter() {
+        guard currentFilter == .similar else { return }
+        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        assets = similarityGroups
+            .map { group in group.assets.filter { !trashIDs.contains($0.localIdentifier) } }
+            .filter { $0.count > 1 }
+            .flatMap { $0 }
+        filterCounts[.similar] = assets.count
+        loadedFilter = .similar
+        isLoading = false
     }
 
     func refreshLibraryOverview() {
@@ -351,6 +400,53 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     // MARK: Review Actions
+
+    func queueSimilarPhotosForDeletion(_ targets: [PHAsset]) {
+        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let uniqueTargets = Dictionary(
+            uniqueKeysWithValues: targets.map { ($0.localIdentifier, $0) }
+        ).values.filter { !trashIDs.contains($0.localIdentifier) }
+        guard !uniqueTargets.isEmpty else { return }
+
+        switch settings.deletionMode {
+        case .appTrash:
+            removeSimilarAssetsFromResults(uniqueTargets)
+            for asset in uniqueTargets {
+                trashBin.append(asset)
+                adjustFilterCounts(for: asset, delta: -1)
+            }
+            persistTrash()
+            scheduleLibraryOverviewRefresh()
+        case .systemTrash:
+            Task { await deleteSimilarAssets(Array(uniqueTargets)) }
+        }
+    }
+
+    private func removeSimilarAssetsFromResults(_ targets: [PHAsset]) {
+        let identifiers = Set(targets.map(\.localIdentifier))
+        similarityGroups = similarityGroups.compactMap { group in
+            let remaining = group.assets.filter { !identifiers.contains($0.localIdentifier) }
+            return remaining.count > 1 ? SimilarPhotoGroup(assets: remaining) : nil
+        }
+        assets.removeAll { identifiers.contains($0.localIdentifier) }
+        filterCounts[.similar] = similarityGroups.reduce(0) { $0 + $1.assets.count }
+    }
+
+    private func deleteSimilarAssets(_ targets: [PHAsset]) async {
+        guard !targets.isEmpty, !isDeleting else { return }
+        deletionError = nil
+        isDeleting = true
+        defer { isDeleting = false }
+        do {
+            try await photoService.deleteAssets(targets)
+            targets.forEach { analytics.recordDeletion(asset: $0, bytes: estimatedBytes(for: $0)) }
+            removeSimilarAssetsFromResults(targets)
+            fetchPhotos()
+            refreshLibraryOverview()
+        } catch {
+            deletionError = error
+        }
+    }
 
     func markForDeletion(_ asset: PHAsset, at index: Int) {
         guard !trashBin.contains(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
