@@ -33,7 +33,7 @@ final class CleaningCardPageView: UIView {
         addSubview(shadowView)
 
         clippingView.backgroundColor = .clear
-        clippingView.layer.cornerRadius = 16
+        clippingView.layer.cornerRadius = 12
         clippingView.layer.cornerCurve = .continuous
         clippingView.clipsToBounds = true
         shadowView.addSubview(clippingView)

@@ -257,7 +257,7 @@ final class CleaningTimelineViewController: UIViewController,
         if contentInsetBoundsSize != view.bounds.size {
             contentInsetBoundsSize = view.bounds.size
             let insets = UIEdgeInsets(
-                top: max(view.safeAreaInsets.top + 56, 96),
+                top: max(view.safeAreaInsets.top + 80, 120),
                 left: 0,
                 bottom: max(view.safeAreaInsets.bottom + 12, 24),
                 right: 0

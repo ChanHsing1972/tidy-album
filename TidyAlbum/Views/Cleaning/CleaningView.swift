@@ -244,7 +244,8 @@ struct CleaningView: View {
             .accessibilityLabel(settings.t("Undo"))
             Spacer()
             CleaningAssetInfoIslandButton(
-                asset: completionControlsHidden || hidesCleaningChrome ? nil : currentAsset,
+                asset: (completionControlsHidden || selectedAssetID == CleaningPageID.groupCompletion) ? nil : currentAsset,
+                isHidden: hidesCleaningChrome,
                 settings: settings,
                 isFavorite: currentAsset.map(manager.isFavorite) ?? false,
                 accessibilityLabel: settings.t("Details")
@@ -465,6 +466,7 @@ private struct CleaningToolbarIconButtonStyle: ViewModifier {
 
 private struct CleaningAssetInfoIslandButton: View {
     let asset: PHAsset?
+    var isHidden: Bool
     @ObservedObject var settings: SettingsStore
     let isFavorite: Bool
     let accessibilityLabel: String
@@ -472,24 +474,28 @@ private struct CleaningAssetInfoIslandButton: View {
 
     @State private var displayedAsset: PHAsset?
     @State private var displayedFavorite: Bool
-    @State private var isVisible: Bool
-    @State private var removalToken: UUID?
 
     init(
         asset: PHAsset?,
+        isHidden: Bool = false,
         settings: SettingsStore,
         isFavorite: Bool,
         accessibilityLabel: String,
         onSelect: @escaping (PHAsset) -> Void
     ) {
         self.asset = asset
+        self.isHidden = isHidden
         self.settings = settings
         self.isFavorite = isFavorite
         self.accessibilityLabel = accessibilityLabel
         self.onSelect = onSelect
+        
         _displayedAsset = State(initialValue: asset)
         _displayedFavorite = State(initialValue: isFavorite)
-        _isVisible = State(initialValue: asset != nil)
+    }
+
+    private var isVisible: Bool {
+        asset != nil && !isHidden
     }
 
     var body: some View {
@@ -508,53 +514,25 @@ private struct CleaningAssetInfoIslandButton: View {
                     .contentShape(Capsule())
                 }
                 .accessibilityLabel(accessibilityLabel)
-                .accessibilityHidden(!isVisible)
-                .allowsHitTesting(isVisible)
-                .opacity(isVisible ? 1 : 0)
-                .animation(.easeInOut(duration: 0.22), value: isVisible)
             }
         }
-        // Release toolbar layout space as soon as completion begins while the
-        // cached island continues drawing outside this zero-width slot for its
-        // opacity fade. This prevents the system from overflowing Share into
-        // an ellipsis menu on compact widths.
         .frame(width: 210)
-        .onChange(of: asset?.localIdentifier, initial: true) { _, _ in
-            if let asset {
-                // Returning from the completion page keeps the previous asset
-                // around briefly so the removal can fade out. Use visibility,
-                // rather than only the cached asset value, to make the next
-                // card fade back in even when the transition finishes before
-                // the delayed cache cleanup runs.
-                let needsFadeIn = !isVisible || displayedAsset == nil
-                removalToken = nil
-                displayedAsset = asset
+        .accessibilityHidden(!isVisible)
+        .allowsHitTesting(isVisible)
+        .opacity(isVisible ? 1 : 0)
+        .animation(.easeInOut(duration: 0.14), value: isVisible)
+        .onChange(of: asset, initial: true) { _, newAsset in
+            if let newAsset {
+                displayedAsset = newAsset
                 displayedFavorite = isFavorite
-                if needsFadeIn {
-                    isVisible = false
-                    let identifier = asset.localIdentifier
-                    Task {
-                        await Task.yield()
-                        guard displayedAsset?.localIdentifier == identifier else { return }
-                        isVisible = true
-                    }
-                } else {
-                    isVisible = true
-                }
-            } else {
-                isVisible = false
-                let token = UUID()
-                removalToken = token
-                Task {
-                    try? await Task.sleep(for: .milliseconds(240))
-                    guard removalToken == token, asset == nil else { return }
-                    displayedAsset = nil
-                }
             }
+            // 注意：当 newAsset 为 nil 时不立即清空 displayedAsset，
+            // 这样 opacity 淡出动画 (0.22s) 播放期间视图仍然存在，不会发生瞬间消失卡顿。
         }
         .onChange(of: isFavorite) { _, newValue in
-            guard asset != nil else { return }
-            displayedFavorite = newValue
+            if asset != nil {
+                displayedFavorite = newValue
+            }
         }
     }
 }
