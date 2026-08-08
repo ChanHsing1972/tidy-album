@@ -57,7 +57,9 @@ final class CleaningTimelineSession {
     }
 
     func setProgress(_ progress: CGFloat) {
-        self.progress = min(max(progress, 0), 1)
+        let clamped = min(max(progress, 0), 1)
+        guard abs(self.progress - clamped) > 0.0005 else { return }
+        self.progress = clamped
         controller?.setTransitionProgress(self.progress)
     }
 

@@ -124,10 +124,16 @@ final class TidyAlbumUITests: XCTestCase {
 
         dismissWelcomeIfNeeded(in: app)
 
+        let similarTab = try XCTUnwrap(firstExistingButton(
+            in: app,
+            labels: ["相似照片", "Similar Photos"],
+            timeout: 3
+        ))
+        similarTab.tap()
         let similar = app.descendants(matching: .any)
-            .matching(identifier: "tidyalbum.filter.similar")
+            .matching(identifier: "tidyalbum.similar")
             .firstMatch
-        XCTAssertTrue(similar.waitForExistence(timeout: 15), "Similar Photos was not available on the Clean tab")
+        XCTAssertTrue(similar.waitForExistence(timeout: 15), "The Similar Photos tab did not load")
 
         let calendarTab = try XCTUnwrap(firstExistingButton(
             in: app,

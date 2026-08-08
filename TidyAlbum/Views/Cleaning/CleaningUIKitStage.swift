@@ -141,6 +141,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private var inspectionPanStart = CGPoint.zero
     private var isImmersive = false
     private var timelineTransitionProgress: CGFloat = 0
+    private var cachedTimelineTargetFrame: CGRect?
     private var timelineTargetColumn = 1
     private var isTimelineAvailable = false
     private weak var timelineSession: CleaningTimelineSession?
@@ -379,14 +380,19 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     }
 
     @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
-        guard !isTransitioning, currentIndex != nil else { return }
+        guard currentIndex != nil else { return }
         switch recognizer.state {
         case .began:
+            finishTransitionForNewGestureIfNeeded()
+            guard !isTransitioning else { return }
             stopInspectionAnimationAtCurrentPosition()
             resetMotion()
             pinchStartScale = viewingScale
             pinchStartRawTranslation = rawViewingTranslation
             pinchStartLocation = recognizer.location(in: view)
+            cachedTimelineTargetFrame = isTimelineAvailable
+                ? timelineSession?.targetFrame(in: view)
+                : nil
             pinchIntent = CleaningMotionGeometry.resolvedPinchIntent(
                 current: .undetermined,
                 startingScale: viewingScale,
@@ -603,11 +609,11 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         let duration = settlingDuration(
             distance: remainingDistance,
             velocity: velocity,
-            baselineVelocity: 1_400,
-            range: 0.045...0.16
+            baselineVelocity: 1_300,
+            range: 0.08...0.24
         )
         translation = CGPoint(x: -CGFloat(direction) * width, y: 0)
-        animate(duration: duration, dampingRatio: 0.9, animations: {
+        animate(duration: duration, dampingRatio: 0.88, animations: {
             self.applyTransforms()
             self.session.setTransitionProgress(1)
         }) { [weak self] in
@@ -879,6 +885,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) { [weak self] in
                 guard let self else { return }
                 self.timelineTransitionProgress = 0
+                self.cachedTimelineTargetFrame = nil
                 self.pinchIntent = .undetermined
                 self.applyTransformsWithoutAnimation()
             }
@@ -901,6 +908,7 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
     private func resetTimelineTransition(animated: Bool, keepPreview: Bool) {
         inspectionAnimator?.stopAnimation(true)
         timelineTransitionProgress = 0
+        cachedTimelineTargetFrame = nil
         timelineSession?.setProgress(0)
         viewingTranslation = .zero
         pinchIntent = .undetermined
@@ -1175,6 +1183,27 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
             currentIndex: currentIndex ?? -1,
             assetCount: assets.count
         )
+        let fallbackSide = max(
+            CleaningTimelineLayout.itemSide(containerWidth: view.bounds.width),
+            1
+        )
+        let fallbackCenter = CGPoint(
+            x: CleaningTimelineLayout.horizontalInset
+                + fallbackSide * 0.5
+                + CGFloat(timelineTargetColumn)
+                    * (fallbackSide + CleaningTimelineLayout.spacing),
+            y: view.bounds.midY
+        )
+        // The collection view is expensive to query. Resolve the destination
+        // once per display update and only while the timeline transition is
+        // active; horizontal and vertical card drags never need this frame.
+        let timelineFrame = timelineTransitionProgress > 0.0005
+            ? cachedTimelineTargetFrame
+            : nil
+        let timelineSide = timelineFrame.map { min($0.width, $0.height) } ?? fallbackSide
+        let timelineCenter = timelineFrame.map {
+            CGPoint(x: $0.midX, y: $0.midY)
+        } ?? fallbackCenter
         for (identifier, page) in cardViews {
             guard let index = assetIndexByID[identifier] else { continue }
             let motion = CleaningMotionGeometry.pageMotion(
@@ -1222,22 +1251,6 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
                     ? 0.55 + 0.45 * viewingScale
                     : 1
             }
-            let fallbackSide = max(
-                CleaningTimelineLayout.itemSide(containerWidth: view.bounds.width),
-                1
-            )
-            let fallbackCenter = CGPoint(
-                x: CleaningTimelineLayout.horizontalInset
-                    + fallbackSide * 0.5
-                    + CGFloat(timelineTargetColumn)
-                        * (fallbackSide + CleaningTimelineLayout.spacing),
-                y: view.bounds.midY
-            )
-            let timelineFrame = timelineSession?.targetFrame(in: view)
-            let timelineSide = timelineFrame.map { min($0.width, $0.height) } ?? fallbackSide
-            let timelineCenter = timelineFrame.map {
-                CGPoint(x: $0.midX, y: $0.midY)
-            } ?? fallbackCenter
             page.setTimelineTransition(
                 progress: index == currentPageIndex ? timelineTransitionProgress : 0,
                 targetSide: timelineSide,
@@ -1414,9 +1427,12 @@ final class CleaningCardStageController: UIViewController, UIGestureRecognizerDe
         baselineVelocity: CGFloat,
         range: ClosedRange<TimeInterval>
     ) -> TimeInterval {
-        let resolvedVelocity = max(abs(velocity), baselineVelocity)
-        let duration = TimeInterval(distance / resolvedVelocity)
-        return min(max(duration, range.lowerBound), range.upperBound)
+        CleaningMotionGeometry.settlingDuration(
+            distance: distance,
+            velocity: velocity,
+            baselineVelocity: baselineVelocity,
+            range: range
+        )
     }
 
     private func prepareHaptics() {

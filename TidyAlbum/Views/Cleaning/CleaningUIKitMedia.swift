@@ -149,8 +149,10 @@ final class CleaningCardPageView: UIView {
         timelineTargetCenterX = targetCenter.x
         timelineTargetCenterY = targetCenter.y
         mediaView.setInteractiveResize(progress > 0)
+        // Let UIKit coalesce layout with the current display pass. Forcing a
+        // synchronous layout here runs shadow-path and media geometry work on
+        // every pinch sample and is a common source of dropped frames.
         setNeedsLayout()
-        layoutIfNeeded()
     }
 
     func setActionProgress(

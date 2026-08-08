@@ -14,7 +14,7 @@ enum AppStrings {
         "Pending deletion": "待删除", "Start Cleaning": "开始清理", "Choose a collection": "选择清理范围",
         "Library Overview": "图库概览", "Selected Collection": "当前分类", "Collections": "分类",
         "Loading Photos": "正在载入照片", "Review Pending Items": "查看待删除项目",
-        "All Photos": "全部", "All": "全部", "Photos": "照片", "Screenshots": "截屏", "Selfies": "自拍", "Favorites": "个人收藏", "Similar Photos": "相似照片", "Large Videos": "大型视频",
+        "All Photos": "全部", "All": "全部", "Photos": "照片", "Screenshots": "截屏", "Selfies": "自拍", "Favorites": "个人收藏", "Similar": "相似", "Similar Photos": "相似照片", "Large Videos": "大型视频",
         "Live Photos": "实况照片", "Some photos are not available to TidyAlbum.": "部分照片尚未授权给 TidyAlbum。",
         "No items in this collection": "此分类中暂无项目", "Review another collection": "查看其他分类",
         "Review complete": "浏览完成", "You reviewed every item in this session.": "你已浏览完本次会话的全部项目。",
@@ -47,7 +47,7 @@ enum AppStrings {
         "Version": "版本", "Developer": "开发者", "Privacy": "隐私", "Processed entirely on device": "完全在设备本地处理",
         "Privacy Detail": "TidyAlbum 使用 PhotoKit 在本地读取与处理照片。照片、视频及其元数据不会上传到任何服务器。",
         "Direct deletion asks Photos for confirmation and cannot be undone inside TidyAlbum.": "直接删除会请求系统“照片”确认，且无法在 TidyAlbum 内撤回。",
-        "Swipe left or right to browse. Swipe up to delete, down to favorite.": "左右滑动浏览，上滑删除，下滑收藏。",
+        "Swipe left or right to browse. Swipe up to delete, down to favorite.": "左右滑动浏览，上滑删除，下滑加入相簿。",
         "Undo": "撤回", "Details": "详情", "Favorite": "收藏", "Remove Favorite": "取消收藏",
         "Delete Failed": "删除失败", "Try again from the pending deletion queue.": "请在待删除队列中重试。",
         "Limited Library": "有限照片访问", "Manage Access": "管理访问", "Photo Access Required": "需要照片访问权限",
@@ -71,16 +71,16 @@ enum AppStrings {
         "Group X of Y": "第 %d 组 / 共 %d 组",
         "Theme": "主题", "Follow System": "跟随系统", "Light": "浅色", "Dark": "深色",
         "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "No device information": "无设备信息", "No camera information": "无镜头信息", "Shutter": "快门",
-        "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑快速删除，下滑添加收藏，左右滑动即可轻松浏览所有照片。",
+        "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑快速删除，下滑加入相簿，左右滑动即可轻松浏览所有照片。",
         "Private & Local": "绝对私密", "Everything stays on your device. No data is ever uploaded.": "所有数据仅保留在本地设备，绝不会上传至任何服务器。",
         "Random Review": "随机抽取", "Shuffle your library for a fresh, effortless review every time.": "随机打乱图库，每次都能轻松发现不同的照片。",
         "Compare": "对比", "Similar Groups": "相似组", "Compare Photos": "对比照片",
         "Similarity Scan Background Detail": "扫描会在本机后台完成，完成后可直接查看每一组对比结果。",
         "No Similar Groups": "暂未发现相似组", "No Similar Groups Detail": "本机扫描完成后，相似照片会按组显示在这里。",
-        "X Groups Y Photos": "%d 组 · %d 张照片", "X Similar Photos": "%d 张相似照片",
+        "X Groups Y Photos": "%d 组 · %d 张照片", "X Similar Photos": "%d 张相似",
         "Tap to Compare": "点击进入对比", "Select Suggested": "选择建议项",
         "Selected X": "已选择 %d 张", "Move X to Pending Deletion": "将 %d 张移入待删除",
-        "Suggested Best": "建议保留", "Keep or Mark": "点击选择待删除", "Keep": "保留",
+        "Suggested Best": "建议保留", "Keep or Mark": "点击选择待删除", "Keep": "保留", "Review Similar Sets": "按组查看相似照片", "Scanning": "扫描中", "Move Similar Photos?": "移入待删除？", "Similar Photos Deletion Detail": "所选照片会先进入 TidyAlbum 的待删除列表，你可以稍后统一确认。", "Similar Photos Review Detail": "点按照片即可标记待删除，建议保留分辨率更高或更新的那一张。", "Select Photos to Remove": "请选择要移入待删除的照片", "Review Queue": "待处理", "Sets Ready": "相似组", "Suggested Removals": "建议清理", "X Suggested Removals": "建议清理 %d 张", "Scan Again": "重新扫描", "Choose What to Keep": "选择保留照片", "Recommended Keeper": "建议保留", "Other Similar Photos": "其他相似照片", "Reset Suggestions": "恢复建议", "Keep This Photo": "保留这张", "Favorites Stay Protected": "收藏照片默认受保护", "Protected Favorite": "收藏已保护", "Review Removal": "确认清理", "Delete X from Photos": "从系统照片删除 %d 张", "System Similar Photos Deletion Detail": "系统将再次请求确认，删除的照片会进入“最近删除”。",
         "Track Progress": "记录清理成果", "See how much space you've reclaimed over time.": "随时直观查看累计清理数，以及成功释放的存储空间。", "Continue": "继续", "Welcome to\nTidyAlbum": "欢迎使用\nTidyAlbum", "Calendar": "日历", "Photo Calendar": "照片日历", "Photos by Month": "按月份查看照片", "Photos by Date": "按时间浏览", "No Dated Photos": "没有包含拍摄日期的照片", "Scan on Device": "在本机扫描", "Finding Similar Photos": "正在识别相似照片", "Similar Photo Privacy": "图像指纹仅在本机生成和比较，不会上传照片。", "Choose Album": "选择相簿", "Albums": "相簿", "New Album": "新建相簿", "Album Name": "相簿名称", "Add": "加入", "Unable to Add to Album": "无法加入相簿", "No Albums": "暂无相簿", "Create an album to organize this photo.": "新建一个相簿来整理这张照片。"
     ]
 }
@@ -102,6 +102,13 @@ extension SettingsStore {
         let formatter = DateFormatter()
         formatter.locale = language.locale
         formatter.setLocalizedDateFormatFromTemplate("yMMMMdEEEEjm")
+        return formatter.string(from: date)
+    }
+
+    func calendarDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = language.locale
+        formatter.setLocalizedDateFormatFromTemplate("yMMMMd")
         return formatter.string(from: date)
     }
 }

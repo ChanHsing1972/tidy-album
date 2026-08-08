@@ -31,7 +31,9 @@ final class CleaningUIKitSession {
     }
 
     func setTransitionProgress(_ progress: CGFloat) {
-        transitionProgress = min(max(progress, 0), 1)
+        let clamped = min(max(progress, 0), 1)
+        guard abs(transitionProgress - clamped) > 0.0005 else { return }
+        transitionProgress = clamped
         backdropView?.setTransition(
             sourceID: transitionSourceID,
             targetID: transitionTargetID,

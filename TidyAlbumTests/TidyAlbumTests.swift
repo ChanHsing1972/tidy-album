@@ -118,6 +118,105 @@ struct TidyAlbumTests {
     }
 
     @Test @MainActor
+    func calendarDateUsesTheSelectedLanguageWithoutTime() {
+        let suiteName = "TidyAlbumTests.calendarDate.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = calendar.date(from: DateComponents(year: 2026, month: 8, day: 8, hour: 10))!
+        let settings = SettingsStore(defaults: defaults)
+
+        settings.language = .simplifiedChinese
+        let chinese = settings.calendarDate(date)
+        #expect(chinese.contains("2026"))
+        #expect(chinese.contains("8"))
+        #expect(!chinese.contains(":"))
+
+        settings.language = .english
+        let english = settings.calendarDate(date)
+        #expect(english.contains("2026"))
+        #expect(!english.contains(":"))
+    }
+
+    @Test
+    func horizontalPageSettleDurationIsReadableButBounded() {
+        let ordinary = CleaningMotionGeometry.settlingDuration(
+            distance: 260,
+            velocity: 600,
+            baselineVelocity: 1_300,
+            range: 0.08...0.24
+        )
+        let fast = CleaningMotionGeometry.settlingDuration(
+            distance: 40,
+            velocity: 8_000,
+            baselineVelocity: 1_300,
+            range: 0.08...0.24
+        )
+        let slow = CleaningMotionGeometry.settlingDuration(
+            distance: 400,
+            velocity: 0,
+            baselineVelocity: 1_300,
+            range: 0.08...0.24
+        )
+
+        #expect(abs(ordinary - 0.2) < 0.0001)
+        #expect(fast == 0.08)
+        #expect(slow == 0.24)
+    }
+
+    @Test
+    func similarityKeeperRankProtectsFavoritesBeforeResolution() {
+        let favorite = SimilarityKeeperRank(
+            isFavorite: true,
+            pixelCount: 1_000,
+            isLivePhoto: false,
+            creationTimestamp: 1
+        )
+        let larger = SimilarityKeeperRank(
+            isFavorite: false,
+            pixelCount: 20_000,
+            isLivePhoto: true,
+            creationTimestamp: 2
+        )
+
+        #expect(favorite > larger)
+    }
+
+    @Test
+    func similarityKeeperRankUsesQualityThenLivePhotoThenDate() {
+        let baseline = SimilarityKeeperRank(
+            isFavorite: false,
+            pixelCount: 10_000,
+            isLivePhoto: false,
+            creationTimestamp: 1
+        )
+        let live = SimilarityKeeperRank(
+            isFavorite: false,
+            pixelCount: 10_000,
+            isLivePhoto: true,
+            creationTimestamp: 1
+        )
+        let newerLive = SimilarityKeeperRank(
+            isFavorite: false,
+            pixelCount: 10_000,
+            isLivePhoto: true,
+            creationTimestamp: 2
+        )
+        let larger = SimilarityKeeperRank(
+            isFavorite: false,
+            pixelCount: 20_000,
+            isLivePhoto: false,
+            creationTimestamp: 0
+        )
+
+        #expect(live > baseline)
+        #expect(newerLive > live)
+        #expect(larger > newerLive)
+    }
+
+    @Test @MainActor
     func deletionTargetUsesTheFollowingPageFromTheRight() {
         let target = CleaningMotionGeometry.deletionTarget(currentIndex: 1, assetCount: 4)
 

@@ -208,6 +208,11 @@ final class PhotoManager: NSObject, ObservableObject {
         }
     }
 
+    func refreshSimilarityScan() {
+        invalidateSimilarityScan()
+        prepareSimilarityScan()
+    }
+
     func pauseSimilarityScan() {
         guard !hasCompletedSimilarityScan else { return }
         similarityScanTask?.cancel()
@@ -228,6 +233,13 @@ final class PhotoManager: NSObject, ObservableObject {
         filterCounts[.similar] = assets.count
         loadedFilter = .similar
         isLoading = false
+    }
+
+    private func invalidateSimilarityScan() {
+        similarityScanTask?.cancel()
+        similarityScanTask = nil
+        similarityProgress = nil
+        hasCompletedSimilarityScan = false
     }
 
     func refreshLibraryOverview() {
@@ -727,6 +739,7 @@ struct UndoResult {
 extension PhotoManager: PHPhotoLibraryChangeObserver {
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         Task { @MainActor in
+            invalidateSimilarityScan()
             await reconcilePendingQueue()
             fetchPhotos()
             refreshLibraryOverview()

@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 struct CleaningDeletionGeometry: Equatable {
     let pageIndex: Int
@@ -24,6 +25,17 @@ enum CleaningPinchIntent: Equatable {
 }
 
 enum CleaningMotionGeometry {
+    static func settlingDuration(
+        distance: CGFloat,
+        velocity: CGFloat,
+        baselineVelocity: CGFloat,
+        range: ClosedRange<TimeInterval>
+    ) -> TimeInterval {
+        let resolvedVelocity = max(abs(velocity), baselineVelocity)
+        let duration = TimeInterval(distance / resolvedVelocity)
+        return min(max(duration, range.lowerBound), range.upperBound)
+    }
+
     static func lockedVerticalComponent(_ value: CGFloat, intent: CGFloat) -> CGFloat {
         intent < 0 ? min(value, 0) : max(value, 0)
     }

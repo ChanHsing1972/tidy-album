@@ -99,7 +99,7 @@ struct CleaningView: View {
                             onToggleFavorite: manager.markFavorite,
                             onAddToAlbum: { albumSelection = AlbumAssetSelection(asset: $0) },
                             timelineTargetColumn: timelineTargetColumn,
-                            isTimelineAvailable: hasLoadedFullTimelineAssets,
+                            isTimelineAvailable: hasLoadedFullTimelineAssets || !availableTimelineAssets.isEmpty,
                             timelineSession: timelineSession,
                             onTimelinePreviewChange: { visible in
                                 withAnimation(.easeOut(duration: 0.14)) {
@@ -206,69 +206,63 @@ struct CleaningView: View {
     // MARK: Toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        if showsTimelineChrome {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: closeTimeline) {
-                    Label("Close", systemImage: "xmark")
-                }
-                .accessibilityLabel(settings.t("Close"))
+        ToolbarItem(placement: .topBarLeading) {
+            Button(action: showsTimelineChrome ? closeTimeline : exitSession) {
+                Image(systemName: "xmark")
             }
-            ToolbarItem(placement: .principal) {
-                Text(settings.t("Photos by Date"))
+            .opacity(hidesCleaningChrome ? 0 : 1)
+            .allowsHitTesting(!hidesCleaningChrome)
+            .accessibilityLabel(settings.t("Close"))
+        }
+        ToolbarItem(placement: .principal) {
+            ZStack {
+                Text(timelineDateTitle)
                     .font(.headline)
-            }
-        } else {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: exitSession) {
-                    Label("Exit", systemImage: "xmark")
-                }
-                .opacity(hidesCleaningChrome ? 0 : 1)
-                .allowsHitTesting(!hidesCleaningChrome)
-                .accessibilityLabel(settings.t("Close"))
-            }
-            ToolbarItem(placement: .principal) {
+                    .opacity(showsTimelineChrome ? 1 : 0)
                 sessionProgress
-                    .opacity(hidesCleaningChrome ? 0 : 1)
+                    .opacity(showsTimelineChrome ? 0 : 1)
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showsTrash = true } label: {
-                    Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
-                }
-                .badge(manager.trashBin.count)
-                .opacity(hidesCleaningChrome ? 0 : 1)
-                .allowsHitTesting(!hidesCleaningChrome)
-                .accessibilityLabel(settings.t("Trash"))
+            .frame(minWidth: 120)
+            .animation(.easeInOut(duration: 0.18), value: showsTimelineChrome)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { showsTrash = true } label: {
+                Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
             }
-            ToolbarItemGroup(placement: .bottomBar) {
-                Button { requestUndo() } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-                .disabled(!manager.canUndo)
-                .opacity(hidesCleaningChrome ? 0 : (manager.canUndo ? 1 : 0.35))
-                .allowsHitTesting(!hidesCleaningChrome)
-                .accessibilityLabel(settings.t("Undo"))
-                Spacer()
-                CleaningAssetInfoIslandButton(
-                    asset: completionControlsHidden || hidesCleaningChrome ? nil : currentAsset,
-                    settings: settings,
-                    isFavorite: currentAsset.map(manager.isFavorite) ?? false,
-                    accessibilityLabel: settings.t("Details")
-                ) { asset in
-                    detailsSelection = AssetSheetSelection(asset: asset)
-                }
-                Spacer()
-                Button(action: prepareShare) {
-                    if isPreparingShare {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                }
-                .disabled(currentAsset == nil || isPreparingShare)
-                .opacity(hidesCleaningChrome ? 0 : (currentAsset == nil ? 0.35 : 1))
-                .allowsHitTesting(!hidesCleaningChrome)
-                .accessibilityLabel(settings.t("Share"))
+            .badge(manager.trashBin.count)
+            .opacity(hidesCleaningChrome || showsTimelineChrome ? 0 : 1)
+            .allowsHitTesting(!hidesCleaningChrome && !showsTimelineChrome)
+            .accessibilityLabel(settings.t("Trash"))
+        }
+        ToolbarItemGroup(placement: .bottomBar) {
+            Button { requestUndo() } label: {
+                Image(systemName: "arrow.uturn.backward")
             }
+            .disabled(!manager.canUndo)
+            .opacity(hidesCleaningChrome ? 0 : (manager.canUndo ? 1 : 0.35))
+            .allowsHitTesting(!hidesCleaningChrome)
+            .accessibilityLabel(settings.t("Undo"))
+            Spacer()
+            CleaningAssetInfoIslandButton(
+                asset: completionControlsHidden || hidesCleaningChrome ? nil : currentAsset,
+                settings: settings,
+                isFavorite: currentAsset.map(manager.isFavorite) ?? false,
+                accessibilityLabel: settings.t("Details")
+            ) { asset in
+                detailsSelection = AssetSheetSelection(asset: asset)
+            }
+            Spacer()
+            Button(action: prepareShare) {
+                if isPreparingShare {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            }
+            .disabled(currentAsset == nil || isPreparingShare)
+            .opacity(hidesCleaningChrome ? 0 : (currentAsset == nil ? 0.35 : 1))
+            .allowsHitTesting(!hidesCleaningChrome)
+            .accessibilityLabel(settings.t("Share"))
         }
     }
 
@@ -401,6 +395,13 @@ struct CleaningView: View {
         timelineTargetColumns = CleaningTimelineLayout.targetColumns(
             in: availableTimelineAssets
         )
+    }
+
+    private var timelineDateTitle: String {
+        guard let date = currentAsset?.creationDate else {
+            return settings.t("Unknown Date")
+        }
+        return settings.calendarDate(date)
     }
 
     private func loadNextGroup() {
@@ -593,15 +594,10 @@ private struct CleaningAssetInfoIsland: View {
                 VStack(spacing: 2) {
                     // 1. 时间信息（不使用 .id，依靠 contentTransition 配合 withAnimation 进行无缝淡入淡出）
                     if let creationDate = asset.creationDate {
-                        let relative = relativeDateParts(settings.relativeDate(creationDate))
-                        HStack(spacing: 0) {
-                            Text(relative.value)
-                                .contentTransition(.numericText())
-                                .animation(.spring(duration: 0.28, bounce: 0.08), value: relative.value)
-                            Text(relative.suffix)
-                        }
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
+                        Text(settings.relativeDate(creationDate))
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
                     }
                     
                     // Reserve the second line before asynchronous metadata arrives.
@@ -632,6 +628,7 @@ private struct CleaningAssetInfoIsland: View {
             }
         }
         .padding(.horizontal, 12)
+        .animation(.easeInOut(duration: 0.22), value: assetIdentifier)
         .animation(.easeInOut(duration: 0.2), value: hasSecondaryInfo)
         .animation(.easeOut(duration: 0.18), value: isFavorite)
         .task(id: asset.map { "\($0.localIdentifier)-\(settings.language.rawValue)-\(settings.assetInfoDisplayMode.rawValue)" } ?? "") {
@@ -660,13 +657,6 @@ private struct CleaningAssetInfoIsland: View {
                 break
             }
         }
-    }
-
-    private func relativeDateParts(_ text: String) -> (value: String, suffix: String) {
-        guard let range = text.range(of: "[0-9]+", options: .regularExpression) else {
-            return (text, "")
-        }
-        return (String(text[range]), String(text[range.upperBound...]))
     }
 
     private func secondaryInfoText(for asset: PHAsset) -> String? {

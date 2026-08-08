@@ -179,7 +179,7 @@ private struct PhotoYearDensityStrip: View {
             let maximum = max(months.map(\.assets.count).max() ?? 0, 1)
             HStack(alignment: .bottom, spacing: 3) {
                 ForEach(months) { month in
-                    Capsule()
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(month.assets.isEmpty ? Color.primary.opacity(0.08) : Color.accentColor.opacity(0.72))
                         .frame(
                             maxWidth: .infinity,
@@ -192,7 +192,6 @@ private struct PhotoYearDensityStrip: View {
         }
     }
 }
-
 private struct PhotoYear: Identifiable {
     let year: Int
     let months: [PhotoMonth]

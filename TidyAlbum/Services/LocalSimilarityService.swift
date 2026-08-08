@@ -1,15 +1,54 @@
 import Photos
 import UIKit
 
-struct SimilarPhotoGroup: Identifiable {
+nonisolated struct SimilarityKeeperRank: Comparable {
+    let isFavorite: Bool
+    let pixelCount: Int64
+    let isLivePhoto: Bool
+    let creationTimestamp: TimeInterval
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        if lhs.isFavorite != rhs.isFavorite { return !lhs.isFavorite }
+        if lhs.pixelCount != rhs.pixelCount { return lhs.pixelCount < rhs.pixelCount }
+        if lhs.isLivePhoto != rhs.isLivePhoto { return !lhs.isLivePhoto }
+        return lhs.creationTimestamp < rhs.creationTimestamp
+    }
+}
+
+nonisolated struct SimilarPhotoGroup: Identifiable {
     let id: String
     let assets: [PHAsset]
 
-    init(assets: [PHAsset]) {
+    nonisolated init(assets: [PHAsset]) {
         self.assets = assets.sorted {
             ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast)
         }
         id = self.assets.map(\.localIdentifier).sorted().joined(separator: "|")
+    }
+
+    var recommendedKeeper: PHAsset? {
+        assets.max(by: Self.isLowerKeeperPriority)
+    }
+
+    var suggestedDeletionAssets: [PHAsset] {
+        let keeperID = recommendedKeeper?.localIdentifier
+        return assets.filter { asset in
+            asset.localIdentifier != keeperID && !asset.isFavorite
+        }
+    }
+
+    private static func isLowerKeeperPriority(_ lhs: PHAsset, _ rhs: PHAsset) -> Bool {
+        rank(for: lhs) < rank(for: rhs)
+    }
+
+    private static func rank(for asset: PHAsset) -> SimilarityKeeperRank {
+        SimilarityKeeperRank(
+            isFavorite: asset.isFavorite,
+            pixelCount: Int64(asset.pixelWidth) * Int64(asset.pixelHeight),
+            isLivePhoto: asset.mediaSubtypes.contains(.photoLive),
+            creationTimestamp: asset.creationDate?.timeIntervalSinceReferenceDate
+                ?? Date.distantPast.timeIntervalSinceReferenceDate
+        )
     }
 }
 
@@ -18,10 +57,31 @@ struct SimilarPhotoGroup: Identifiable {
 actor LocalSimilarityService {
     static let shared = LocalSimilarityService()
 
-    private struct Fingerprint {
+    private struct Fingerprint: Codable {
         let hash: UInt64
-        let averageColor: SIMD3<Float>
+        let red: Float
+        let green: Float
+        let blue: Float
         let aspectRatio: Float
+        let pixelWidth: Int
+        let pixelHeight: Int
+        let modificationTimestamp: TimeInterval
+
+        var averageColor: SIMD3<Float> { SIMD3(red, green, blue) }
+
+        func matches(_ asset: PHAsset) -> Bool {
+            pixelWidth == asset.pixelWidth
+                && pixelHeight == asset.pixelHeight
+                && abs(
+                    modificationTimestamp
+                        - (asset.modificationDate?.timeIntervalSinceReferenceDate ?? 0)
+                ) < 0.5
+        }
+    }
+
+    private struct CachePayload: Codable {
+        let version: Int
+        let fingerprints: [String: Fingerprint]
     }
 
     private struct BucketKey: Hashable {
@@ -30,6 +90,8 @@ actor LocalSimilarityService {
     }
 
     private var fingerprintCache: [String: Fingerprint] = [:]
+    private var didLoadPersistentCache = false
+    private let cacheVersion = 1
 
     private init() {}
 
@@ -45,9 +107,13 @@ actor LocalSimilarityService {
         progress: @escaping @MainActor (Double) -> Void
     ) async -> [SimilarPhotoGroup] {
         guard assets.count > 1 else { return [] }
+        loadPersistentCacheIfNeeded()
         var values = [Fingerprint?](repeating: nil, count: assets.count)
         for index in assets.indices {
-            values[index] = fingerprintCache[assets[index].localIdentifier]
+            let asset = assets[index]
+            if let cached = fingerprintCache[asset.localIdentifier], cached.matches(asset) {
+                values[index] = cached
+            }
         }
         // The scanner is only active on its dedicated tab. Use a bounded
         // burst of fast thumbnails so a large library finishes in seconds,
@@ -79,6 +145,10 @@ actor LocalSimilarityService {
             }
             await Task.yield()
         }
+
+        let activeIdentifiers = Set(assets.map(\.localIdentifier))
+        fingerprintCache = fingerprintCache.filter { activeIdentifiers.contains($0.key) }
+        persistCache()
 
         let fingerprints = assets.indices.compactMap { index in
             values[index].map { (asset: assets[index], value: $0) }
@@ -202,10 +272,43 @@ actor LocalSimilarityService {
             let ratio = Float(asset.pixelWidth) / Float(max(asset.pixelHeight, 1))
             return Fingerprint(
                 hash: hash,
-                averageColor: SIMD3(red / count, green / count, blue / count),
-                aspectRatio: ratio
+                red: red / count,
+                green: green / count,
+                blue: blue / count,
+                aspectRatio: ratio,
+                pixelWidth: asset.pixelWidth,
+                pixelHeight: asset.pixelHeight,
+                modificationTimestamp: asset.modificationDate?.timeIntervalSinceReferenceDate ?? 0
             )
         }.value
+    }
+
+    private func loadPersistentCacheIfNeeded() {
+        guard !didLoadPersistentCache else { return }
+        didLoadPersistentCache = true
+        guard let url = cacheURL,
+              let data = try? Data(contentsOf: url),
+              let payload = try? JSONDecoder().decode(CachePayload.self, from: data),
+              payload.version == cacheVersion else { return }
+        fingerprintCache = payload.fingerprints
+    }
+
+    private func persistCache() {
+        guard let url = cacheURL,
+              let data = try? JSONEncoder().encode(
+                  CachePayload(version: cacheVersion, fingerprints: fingerprintCache)
+              ) else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private var cacheURL: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Similarity", isDirectory: true)
+            .appendingPathComponent("fingerprints-v1.json", isDirectory: false)
     }
 
     private func colorDistance(_ lhs: SIMD3<Float>, _ rhs: SIMD3<Float>) -> Float {
