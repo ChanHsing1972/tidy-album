@@ -208,7 +208,7 @@ struct CleaningView: View {
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button(action: showsTimelineChrome ? closeTimeline : exitSession) {
-                Image(systemName: "xmark")
+                Label("xmark", systemImage: "xmark")
             }
             .opacity(hidesCleaningChrome ? 0 : 1)
             .allowsHitTesting(!hidesCleaningChrome)
@@ -243,15 +243,14 @@ struct CleaningView: View {
             .allowsHitTesting(!hidesCleaningChrome)
             .accessibilityLabel(settings.t("Undo"))
             Spacer()
-            CleaningAssetInfoIslandButton(
-                asset: (completionControlsHidden || selectedAssetID == CleaningPageID.groupCompletion) ? nil : currentAsset,
-                isHidden: hidesCleaningChrome,
-                settings: settings,
-                isFavorite: currentAsset.map(manager.isFavorite) ?? false,
-                accessibilityLabel: settings.t("Details")
-            ) { asset in
-                detailsSelection = AssetSheetSelection(asset: asset)
-            }
+        }
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .bottomBar) { detailsToolbarButton }
+                .sharedBackgroundVisibility(detailsToolbarAsset == nil || hidesCleaningChrome ? .hidden : .automatic)
+        } else {
+            ToolbarItem(placement: .bottomBar) { detailsToolbarButton }
+        }
+        ToolbarItemGroup(placement: .bottomBar) {
             Spacer()
             Button(action: prepareShare) {
                 if isPreparingShare {
@@ -264,6 +263,22 @@ struct CleaningView: View {
             .opacity(hidesCleaningChrome ? 0 : (currentAsset == nil ? 0.35 : 1))
             .allowsHitTesting(!hidesCleaningChrome)
             .accessibilityLabel(settings.t("Share"))
+        }
+    }
+
+    private var detailsToolbarAsset: PHAsset? {
+        (completionControlsHidden || selectedAssetID == CleaningPageID.groupCompletion) ? nil : currentAsset
+    }
+
+    private var detailsToolbarButton: some View {
+        CleaningAssetInfoIslandButton(
+            asset: detailsToolbarAsset,
+            isHidden: hidesCleaningChrome,
+            settings: settings,
+            isFavorite: currentAsset.map(manager.isFavorite) ?? false,
+            accessibilityLabel: settings.t("Details")
+        ) { asset in
+            detailsSelection = AssetSheetSelection(asset: asset)
         }
     }
 
@@ -472,9 +487,6 @@ private struct CleaningAssetInfoIslandButton: View {
     let accessibilityLabel: String
     let onSelect: (PHAsset) -> Void
 
-    @State private var displayedAsset: PHAsset?
-    @State private var displayedFavorite: Bool
-
     init(
         asset: PHAsset?,
         isHidden: Bool = false,
@@ -489,9 +501,6 @@ private struct CleaningAssetInfoIslandButton: View {
         self.isFavorite = isFavorite
         self.accessibilityLabel = accessibilityLabel
         self.onSelect = onSelect
-        
-        _displayedAsset = State(initialValue: asset)
-        _displayedFavorite = State(initialValue: isFavorite)
     }
 
     private var isVisible: Bool {
@@ -499,21 +508,26 @@ private struct CleaningAssetInfoIslandButton: View {
     }
 
     var body: some View {
-        Group {
-            if let displayedAsset {
+        ZStack {
+            // Keep toolbar geometry stable while SwiftUI removes the old button.
+            Color.clear.frame(height: 44).accessibilityHidden(true)
+            if let asset {
                 Button {
-                    onSelect(displayedAsset)
+                    onSelect(asset)
                 } label: {
                     CleaningAssetInfoIsland(
-                        asset: displayedAsset,
+                        asset: asset,
                         settings: settings,
-                        isFavorite: displayedFavorite
+                        isFavorite: isFavorite
                     )
                     .frame(width: 210)
                     .frame(minHeight: 44)
                     .contentShape(Capsule())
                 }
                 .accessibilityLabel(accessibilityLabel)
+                .accessibilityHidden(!isVisible)
+                .disabled(!isVisible)
+                .transition(.opacity)
             }
         }
         .frame(width: 210)
@@ -521,19 +535,6 @@ private struct CleaningAssetInfoIslandButton: View {
         .allowsHitTesting(isVisible)
         .opacity(isVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.14), value: isVisible)
-        .onChange(of: asset, initial: true) { _, newAsset in
-            if let newAsset {
-                displayedAsset = newAsset
-                displayedFavorite = isFavorite
-            }
-            // 注意：当 newAsset 为 nil 时不立即清空 displayedAsset，
-            // 这样 opacity 淡出动画 (0.22s) 播放期间视图仍然存在，不会发生瞬间消失卡顿。
-        }
-        .onChange(of: isFavorite) { _, newValue in
-            if asset != nil {
-                displayedFavorite = newValue
-            }
-        }
     }
 }
 

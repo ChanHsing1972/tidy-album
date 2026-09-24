@@ -14,7 +14,7 @@ struct ContentView: View {
 
     init() {
         // 🧪 调试专用：取消下面这行的注释，每次启动都强行清除“已看过”标记，请勿删除
-        UserDefaults.standard.removeObject(forKey: "app.hasLaunchedBefore")
+//        UserDefaults.standard.removeObject(forKey: "app.hasLaunchedBefore")
         let settings = SettingsStore()
         let analytics = AnalyticsStore()
         _settings = StateObject(wrappedValue: settings)
@@ -41,10 +41,10 @@ struct ContentView: View {
                     Label(settings.t("Calendar"), systemImage: "calendar")
                 }
 
-            SimilarPhotosView(manager: manager, settings: settings)
-                .tabItem {
-                    Label(settings.t("Similar"), systemImage: "square.on.square")
-                }
+//            SimilarPhotosView(manager: manager, settings: settings)
+//                .tabItem {
+//                    Label(settings.t("Similar"), systemImage: "square.on.square")
+//                }
 
             AnalyticsView(store: analytics, settings: settings, manager: manager)
                 .tabItem {

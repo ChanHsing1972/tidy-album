@@ -11,7 +11,6 @@ struct TrashView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var detailsSelection: TrashAssetSelection?
-    @State private var restoringAssetIDs: Set<String> = []
 
     // 💡 保持 Grid 布局稳定
     private let columns = [GridItem(.adaptive(minimum: 108), spacing: 3)]
@@ -68,7 +67,7 @@ struct TrashView: View {
                 ForEach(manager.trashBin, id: \.localIdentifier) { asset in
                     TrashQueueItem(
                         asset: asset,
-                        isRestoring: restoringAssetIDs.contains(asset.localIdentifier),
+                        isDeleting: manager.isDeleting,
                         detailsLabel: settings.t("View Details"),
                         restoreLabel: settings.t("Restore"),
                         onDetails: { detailsSelection = TrashAssetSelection(asset: asset) },
@@ -88,20 +87,9 @@ struct TrashView: View {
     // MARK: 高性能撤回逻辑
 
     private func restore(_ asset: PHAsset) {
-        let identifier = asset.localIdentifier
-        guard !restoringAssetIDs.contains(identifier) else { return }
-
-        withAnimation(.easeOut(duration: 0.15)) {
-            _ = restoringAssetIDs.insert(identifier)
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(160))
-            guard !Task.isCancelled else { return }
-            withAnimation(.spring(response: 0.35, dampingFraction: 1)) {
-                manager.restoreFromTrash(asset)
-                restoringAssetIDs.remove(identifier)
-            }
+        // The command is synchronous; the grid transition only presents its result.
+        withAnimation(.spring(response: 0.35, dampingFraction: 1)) {
+            _ = manager.restoreFromTrash(asset)
         }
     }
 
@@ -169,7 +157,7 @@ struct TrashView: View {
 
 private struct TrashQueueItem: View, Equatable {
     let asset: PHAsset
-    let isRestoring: Bool
+    let isDeleting: Bool
     let detailsLabel: String
     let restoreLabel: String
     let onDetails: () -> Void
@@ -177,7 +165,7 @@ private struct TrashQueueItem: View, Equatable {
 
     static func == (lhs: TrashQueueItem, rhs: TrashQueueItem) -> Bool {
         lhs.asset.localIdentifier == rhs.asset.localIdentifier &&
-            lhs.isRestoring == rhs.isRestoring &&
+            lhs.isDeleting == rhs.isDeleting &&
             lhs.detailsLabel == rhs.detailsLabel &&
             lhs.restoreLabel == rhs.restoreLabel
     }
@@ -190,7 +178,6 @@ private struct TrashQueueItem: View, Equatable {
                     .contentShape(Rectangle())
             }
             
-            .disabled(isRestoring)
             .accessibilityLabel(detailsLabel)
 
             Button(action: onRestore) {
@@ -201,12 +188,9 @@ private struct TrashQueueItem: View, Equatable {
                     .contentShape(Rectangle())
             }
             
-            .disabled(isRestoring)
+            .disabled(isDeleting)
             .accessibilityLabel(restoreLabel)
         }
-        .opacity(isRestoring ? 0 : 1)
-        .scaleEffect(isRestoring ? 0.8 : 1)
-        .animation(.easeOut(duration: 0.15), value: isRestoring)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }

@@ -51,7 +51,11 @@ final class PhotoManager: NSObject, ObservableObject {
     private var isSessionActive = false
     private var fetchRevision = 0
     private var overviewRevision = 0
-    private var hasRestoredPendingQueue = false
+    // Identifiers own queue membership; trashBin is its currently accessible projection.
+    // A missing fetch result can mean Limited access, not deletion of the user's intent.
+    private var pendingDeletionIdentifiers: [String]
+    private var pendingQueueRevision = 0
+    private var pendingQueueFetchRevision = 0
     private var overviewRefreshTask: Task<Void, Never>?
     private var photoFetchTask: Task<Void, Never>?
     private var similarityScanTask: Task<Void, Never>?
@@ -62,7 +66,11 @@ final class PhotoManager: NSObject, ObservableObject {
 
     // MARK: Derived State
 
-    var canUndo: Bool { !history.isEmpty }
+    var canUndo: Bool {
+        guard let action = history.last else { return false }
+        if case .deletion = action.kind { return !isDeleting }
+        return true
+    }
     var canBeginSession: Bool { loadedFilter == currentFilter && cleaningCandidateCount > 0 && !isLoading }
     var cleaningCandidateCount: Int {
         guard settings.sortOrder == .random, settings.excludesViewedInRandomMode else { return assets.count }
@@ -88,6 +96,9 @@ final class PhotoManager: NSObject, ObservableObject {
         self.settings = settings
         self.analytics = analytics
         self.defaults = defaults
+        var seen = Set<String>()
+        pendingDeletionIdentifiers = (defaults.stringArray(forKey: pendingDeletionKey) ?? [])
+            .filter { seen.insert($0).inserted }
         persistedViewedIdentifiers = Set(defaults.stringArray(forKey: viewedIdentifiersKey) ?? [])
         viewedAssetCount = persistedViewedIdentifiers.count
         super.init()
@@ -124,7 +135,7 @@ final class PhotoManager: NSObject, ObservableObject {
             return
         }
         Task {
-            await restorePendingQueueIfNeeded()
+            await reconcilePendingQueue()
             fetchPhotos()
             refreshLibraryOverview()
         }
@@ -162,7 +173,7 @@ final class PhotoManager: NSObject, ObservableObject {
             guard !Task.isCancelled else { return }
             let fetched = source
             guard !Task.isCancelled else { return }
-            let trashIDs = Set(self.trashBin.map(\.localIdentifier))
+            let trashIDs = Set(self.pendingDeletionIdentifiers)
             let available = fetched.filter { !trashIDs.contains($0.localIdentifier) }
             guard revision == self.fetchRevision,
                   requestedFilter == self.currentFilter,
@@ -225,7 +236,7 @@ final class PhotoManager: NSObject, ObservableObject {
 
     private func applySimilarityGroupsToCurrentFilter() {
         guard currentFilter == .similar else { return }
-        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let trashIDs = Set(pendingDeletionIdentifiers)
         assets = similarityGroups
             .map { group in group.assets.filter { !trashIDs.contains($0.localIdentifier) } }
             .filter { $0.count > 1 }
@@ -247,7 +258,7 @@ final class PhotoManager: NSObject, ObservableObject {
         overviewRevision += 1
         let revision = overviewRevision
         Task {
-            let trashIDs = Set(trashBin.map(\.localIdentifier))
+            let trashIDs = Set(pendingDeletionIdentifiers)
             var counts: [PhotoFilter: Int] = [:]
             for filter in PhotoFilter.allCases where filter != .similar {
                 let fetched = await photoService.fetchAssets(filter: filter)
@@ -265,7 +276,7 @@ final class PhotoManager: NSObject, ObservableObject {
 
     func beginSession() {
         pauseSimilarityScan()
-        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let trashIDs = Set(pendingDeletionIdentifiers)
         var available = assets.filter { !trashIDs.contains($0.localIdentifier) }
         if settings.sortOrder == .random, settings.excludesViewedInRandomMode {
             available.removeAll { persistedViewedIdentifiers.contains($0.localIdentifier) }
@@ -275,7 +286,7 @@ final class PhotoManager: NSObject, ObservableObject {
 
     func beginSession(with requestedAssets: [PHAsset]) {
         pauseSimilarityScan()
-        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let trashIDs = Set(pendingDeletionIdentifiers)
         let available = orderedForCleaning(
             requestedAssets.filter { !trashIDs.contains($0.localIdentifier) }
         )
@@ -294,7 +305,7 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func beginSession(around anchor: PHAsset, from requestedAssets: [PHAsset]) {
-        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let trashIDs = Set(pendingDeletionIdentifiers)
         let chronological = requestedAssets
             .filter { !trashIDs.contains($0.localIdentifier) }
             .sorted {
@@ -385,7 +396,7 @@ final class PhotoManager: NSObject, ObservableObject {
 
     func fetchCalendarAssets() async -> [PHAsset] {
         let fetched = await photoService.fetchAssets(filter: .all)
-        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let trashIDs = Set(pendingDeletionIdentifiers)
         return fetched.filter { !trashIDs.contains($0.localIdentifier) }
     }
 
@@ -427,7 +438,7 @@ final class PhotoManager: NSObject, ObservableObject {
     // MARK: Review Actions
 
     func queueSimilarPhotosForDeletion(_ targets: [PHAsset]) {
-        let trashIDs = Set(trashBin.map(\.localIdentifier))
+        let trashIDs = Set(pendingDeletionIdentifiers)
         let uniqueTargets = Dictionary(
             uniqueKeysWithValues: targets.map { ($0.localIdentifier, $0) }
         ).values.filter { !trashIDs.contains($0.localIdentifier) }
@@ -436,11 +447,10 @@ final class PhotoManager: NSObject, ObservableObject {
         switch settings.deletionMode {
         case .appTrash:
             removeSimilarAssetsFromResults(uniqueTargets)
+            appendToPendingQueue(Array(uniqueTargets))
             for asset in uniqueTargets {
-                trashBin.append(asset)
                 adjustFilterCounts(for: asset, delta: -1)
             }
-            persistTrash()
             scheduleLibraryOverviewRefresh()
         case .systemTrash:
             Task { await deleteSimilarAssets(Array(uniqueTargets)) }
@@ -469,12 +479,12 @@ final class PhotoManager: NSObject, ObservableObject {
             fetchPhotos()
             refreshLibraryOverview()
         } catch {
-            deletionError = error
+            deletionError = isDeletionCancellation(error) ? nil : error
         }
     }
 
     func markForDeletion(_ asset: PHAsset, at index: Int) {
-        guard !trashBin.contains(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
+        guard !pendingDeletionIdentifiers.contains(asset.localIdentifier) else { return }
         recordViewed(asset)
         let removalIndex = sessionAssets.firstIndex {
             $0.localIdentifier == asset.localIdentifier
@@ -484,8 +494,7 @@ final class PhotoManager: NSObject, ObservableObject {
             sessionSummary.markedForDeletionCount += 1
             sessionSummary.estimatedReclaimBytes += estimatedBytes(for: asset)
         }
-        trashBin.append(asset)
-        persistTrash()
+        appendToPendingQueue([asset])
         sessionAssets.removeAll { $0.localIdentifier == asset.localIdentifier }
         sessionGroupTotalCount = sessionAssets.count
         adjustFilterCounts(for: asset, delta: -1)
@@ -535,13 +544,12 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func undoLastAction() async -> UndoResult? {
-        guard let action = history.popLast() else { return nil }
+        guard canUndo, let action = history.popLast() else { return nil }
         let restoresDeletedAsset: Bool
         switch action.kind {
         case .deletion:
             restoresDeletedAsset = true
-            trashBin.removeAll { $0.localIdentifier == action.asset.localIdentifier }
-            persistTrash()
+            removeFromPendingQueue([action.asset.localIdentifier])
             removeFromSessionDeletionSummary(action.asset)
             insertIntoSession(action.asset, at: action.index)
             removedSessionIndices[action.asset.localIdentifier] = nil
@@ -569,9 +577,11 @@ final class PhotoManager: NSObject, ObservableObject {
 
     // MARK: Pending Deletion
 
-    func restoreFromTrash(_ asset: PHAsset) {
-        trashBin.removeAll { $0.localIdentifier == asset.localIdentifier }
-        persistTrash()
+    @discardableResult
+    func restoreFromTrash(_ asset: PHAsset) -> Bool {
+        // Once handed to PhotoKit, a local restore cannot cancel the system transaction.
+        guard !isDeleting, pendingDeletionIdentifiers.contains(asset.localIdentifier) else { return false }
+        removeFromPendingQueue([asset.localIdentifier])
         removeFromSessionDeletionSummary(asset)
         history.removeAll { $0.asset.localIdentifier == asset.localIdentifier }
         if let index = removedSessionIndices[asset.localIdentifier] {
@@ -580,11 +590,13 @@ final class PhotoManager: NSObject, ObservableObject {
         }
         adjustFilterCounts(for: asset, delta: 1)
         scheduleLibraryOverviewRefresh()
+        return true
     }
 
     func restoreAllFromTrash() {
+        guard !isDeleting else { return }
         let targets = trashBin
-        targets.forEach(restoreFromTrash)
+        targets.forEach { restoreFromTrash($0) }
     }
 
     func emptyTrash() async {
@@ -595,26 +607,35 @@ final class PhotoManager: NSObject, ObservableObject {
         await deleteAssets(assets)
     }
 
-    private func deleteAssets(_ targets: [PHAsset], restoreOnFailureAt index: Int? = nil) async {
-        guard !targets.isEmpty, !isDeleting else { return }
+    private func deleteAssets(_ requestedTargets: [PHAsset], restoreOnFailureAt index: Int? = nil) async {
+        guard !isDeleting else { return }
+        // Revalidate when the task starts: a synchronous restore may have already won.
+        let pendingIDs = Set(pendingDeletionIdentifiers)
+        var seen = Set<String>()
+        let targets = requestedTargets.filter {
+            pendingIDs.contains($0.localIdentifier) && seen.insert($0.localIdentifier).inserted
+        }
+        guard !targets.isEmpty else { return }
         deletionError = nil
         isDeleting = true
-        defer { isDeleting = false }
+        pendingQueueRevision += 1
+        defer {
+            pendingQueueRevision += 1
+            isDeleting = false
+        }
         do {
             try await photoService.deleteAssets(targets)
             targets.forEach { analytics.recordDeletion(asset: $0, bytes: estimatedBytes(for: $0)) }
             let identifiers = Set(targets.map(\.localIdentifier))
-            trashBin.removeAll { identifiers.contains($0.localIdentifier) }
-            persistTrash()
+            removeFromPendingQueue(identifiers)
             history.removeAll { identifiers.contains($0.asset.localIdentifier) }
             identifiers.forEach { removedSessionIndices[$0] = nil }
             fetchPhotos()
             refreshLibraryOverview()
         } catch {
-            deletionError = error
+            deletionError = isDeletionCancellation(error) ? nil : error
             if let index, let asset = targets.first {
-                trashBin.removeAll { $0.localIdentifier == asset.localIdentifier }
-                persistTrash()
+                removeFromPendingQueue([asset.localIdentifier])
                 insertIntoSession(asset, at: index)
                 removedSessionIndices[asset.localIdentifier] = nil
                 removeFromSessionDeletionSummary(asset)
@@ -625,6 +646,11 @@ final class PhotoManager: NSObject, ObservableObject {
 
     func clearDeletionError() {
         deletionError = nil
+    }
+
+    private func isDeletionCancellation(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == PHPhotosErrorDomain && error.code == PHPhotosError.userCancelled.rawValue
     }
 
     func estimatedBytes(for asset: PHAsset) -> Int64 {
@@ -677,28 +703,48 @@ final class PhotoManager: NSObject, ObservableObject {
 
     // MARK: Queue Persistence
 
-    private func restorePendingQueueIfNeeded() async {
-        guard !hasRestoredPendingQueue else { return }
-        hasRestoredPendingQueue = true
-        let identifiers = defaults.stringArray(forKey: pendingDeletionKey) ?? []
-        guard !identifiers.isEmpty else { return }
-        let fetched = await photoService.fetchAssets(localIdentifiers: identifiers)
-        let byIdentifier = Dictionary(uniqueKeysWithValues: fetched.map { ($0.localIdentifier, $0) })
-        trashBin = identifiers.compactMap { byIdentifier[$0] }
-        persistTrash()
-    }
-
     private func reconcilePendingQueue() async {
-        guard hasRestoredPendingQueue, !trashBin.isEmpty else { return }
-        let identifiers = trashBin.map(\.localIdentifier)
-        let fetched = await photoService.fetchAssets(localIdentifiers: identifiers)
-        let byIdentifier = Dictionary(uniqueKeysWithValues: fetched.map { ($0.localIdentifier, $0) })
-        trashBin = identifiers.compactMap { byIdentifier[$0] }
-        persistTrash()
+        pendingQueueFetchRevision += 1
+        let requestRevision = pendingQueueFetchRevision
+        while isAuthorized, !isDeleting, !Task.isCancelled {
+            let revision = pendingQueueRevision
+            let authorization = photoService.authorizationStatus
+            let identifiers = pendingDeletionIdentifiers
+            guard !identifiers.isEmpty else {
+                trashBin = []
+                return
+            }
+            let fetched = await photoService.fetchAssets(localIdentifiers: identifiers)
+            guard requestRevision == pendingQueueFetchRevision,
+                  isAuthorized, !isDeleting, !Task.isCancelled,
+                  photoService.authorizationStatus == authorization else { return }
+            // Retry from current membership instead of publishing a stale read.
+            guard revision == pendingQueueRevision else { continue }
+            let byIdentifier = Dictionary(fetched.map { ($0.localIdentifier, $0) },
+                                          uniquingKeysWith: { _, latest in latest })
+            trashBin = identifiers.compactMap { byIdentifier[$0] }
+            return
+        }
     }
 
-    private func persistTrash() {
-        defaults.set(trashBin.map(\.localIdentifier), forKey: pendingDeletionKey)
+    private func appendToPendingQueue(_ assets: [PHAsset]) {
+        var identifiers = Set(pendingDeletionIdentifiers)
+        let additions = assets.filter { identifiers.insert($0.localIdentifier).inserted }
+        guard !additions.isEmpty else { return }
+        pendingDeletionIdentifiers.append(contentsOf: additions.map(\.localIdentifier))
+        trashBin.append(contentsOf: additions)
+        persistPendingQueue()
+    }
+
+    private func removeFromPendingQueue(_ identifiers: Set<String>) {
+        pendingDeletionIdentifiers.removeAll { identifiers.contains($0) }
+        trashBin.removeAll { identifiers.contains($0.localIdentifier) }
+        persistPendingQueue()
+    }
+
+    private func persistPendingQueue() {
+        pendingQueueRevision += 1
+        defaults.set(pendingDeletionIdentifiers, forKey: pendingDeletionKey)
     }
 
     private func persistViewedIdentifiers() {

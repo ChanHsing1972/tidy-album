@@ -73,7 +73,7 @@ enum AppStrings {
         "Unable to Share": "无法分享", "The original item could not be prepared. Please check iCloud connectivity and try again.": "无法读取原始项目，请检查 iCloud 网络状态后重试。", "No device information": "无设备信息", "No camera information": "无镜头信息", "Shutter": "快门",
         "Swipe to Review": "滑动整理", "Swipe up to delete, down to favorite. Left and right to browse.": "上滑快速删除，下滑加入相簿，左右滑动即可轻松浏览所有照片。",
         "Private & Local": "绝对私密", "Everything stays on your device. No data is ever uploaded.": "所有数据仅保留在本地设备，绝不会上传至任何服务器。",
-        "Random Review": "随机抽取", "Shuffle your library for a fresh, effortless review every time.": "随机打乱图库，每次都能轻松发现不同的照片。",
+        "Random Review": "随机抽取", "Shuffle your library for a fresh, effortless review every time.": "随机打乱图库，如同开盲盒一般，每次都能发现不同的照片。",
         "Compare": "对比", "Similar Groups": "相似组", "Compare Photos": "对比照片",
         "Similarity Scan Background Detail": "扫描会在本机后台完成，完成后可直接查看每一组对比结果。",
         "No Similar Groups": "暂未发现相似组", "No Similar Groups Detail": "本机扫描完成后，相似照片会按组显示在这里。",
