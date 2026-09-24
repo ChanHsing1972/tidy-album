@@ -8,6 +8,7 @@ struct PhotoCalendarView: View {
     @State private var assets: [PHAsset] = []
     @State private var isLoading = true
     @State private var showsCleaning = false
+    @State private var reloadToken = UUID()
 
     private let columns = [
         GridItem(.adaptive(minimum: 148, maximum: 220), spacing: 12)
@@ -16,7 +17,11 @@ struct PhotoCalendarView: View {
     var body: some View {
         NavigationStack {
             Group {
-              if years.isEmpty {
+                if !manager.isAuthorized {
+                    PermissionView(settings: settings)
+                } else if isLoading && assets.isEmpty {
+                    ProgressView()
+                } else if years.isEmpty {
                     ContentUnavailableView(
                         settings.t("No Dated Photos"),
                         systemImage: "calendar.badge.exclamationmark"
@@ -30,7 +35,13 @@ struct PhotoCalendarView: View {
             .navigationTitle(settings.t("Photo Calendar"))
             .accessibilityIdentifier("tidyalbum.calendar")
         }
-        .task { await reload() }
+        .task(id: manager.calendarSnapshotID) { await reload() }
+        .onChange(of: manager.isAuthorized) { _, authorized in
+            if !authorized {
+                assets = []
+                showsCleaning = false
+            }
+        }
         .fullScreenCover(isPresented: $showsCleaning, onDismiss: manager.endSession) {
             CleaningView(manager: manager, settings: settings)
         }
@@ -165,8 +176,19 @@ struct PhotoCalendarView: View {
     }
 
     private func reload() async {
+        let token = UUID()
+        reloadToken = token
+        let revision = manager.libraryRevision
+        guard manager.isAuthorized else {
+            assets = []
+            isLoading = false
+            return
+        }
         isLoading = true
-        assets = await manager.fetchCalendarAssets()
+        let fetched = await manager.fetchCalendarAssets()
+        guard !Task.isCancelled, token == reloadToken,
+              revision == manager.libraryRevision, manager.isAuthorized else { return }
+        assets = fetched
         isLoading = false
     }
 }

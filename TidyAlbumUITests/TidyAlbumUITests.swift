@@ -86,7 +86,21 @@ final class TidyAlbumUITests: XCTestCase {
                 finish = button
                 break
             }
-            currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
+            let alignedCard = waitForAlignedCurrentCard(in: app, timeout: 3)
+            if alignedCard == nil {
+                // Completion can appear after the short first probe while the card disappears.
+                // Check both valid outcomes before reporting a missing photo page.
+                if let button = firstExistingButton(in: app, labels: ["完成", "Finish"], timeout: 0.15) {
+                    finish = button
+                    break
+                }
+                attachScreenshot(named: "Cleaning - Missing Card Before Completion", app: app)
+                let hierarchy = XCTAttachment(string: app.debugDescription)
+                hierarchy.name = "Cleaning - Failed completion hierarchy"
+                hierarchy.lifetime = .keepAlways
+                add(hierarchy)
+            }
+            currentCard = try XCTUnwrap(alignedCard)
         }
         XCTAssertNotNil(finish, "The completion page did not become active")
         XCTAssertTrue(

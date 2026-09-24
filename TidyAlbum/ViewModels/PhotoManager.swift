@@ -17,6 +17,7 @@ final class PhotoManager: NSObject, ObservableObject {
 
     // MARK: Published State
 
+    @Published private(set) var libraryRevision = 0
     @Published private(set) var assets: [PHAsset] = []
     @Published private(set) var sessionAssets: [PHAsset] = []
     @Published private(set) var trashBin: [PHAsset] = []
@@ -40,6 +41,8 @@ final class PhotoManager: NSObject, ObservableObject {
 
     // MARK: Private State
 
+    private var pendingFavoriteActions: [UUID: String] = [:]
+    private var favoriteRevision = 0
     private var history: [ReviewAction] = []
     private var reviewedIdentifiers: Set<String> = []
     private var sessionDeletedIdentifiers: Set<String> = []
@@ -49,6 +52,13 @@ final class PhotoManager: NSObject, ObservableObject {
     private var sessionQueue: [PHAsset] = []
     private var sessionCursor = 0
     private var isSessionActive = false
+    private var sessionRevision = 0
+    private var sessionFetchRevision = 0
+    private var authorizationRevision = 0
+    private var lastAuthorization: PHAuthorizationStatus?
+    private var libraryRefreshTask: Task<Void, Never>?
+    private var authorizationTask: Task<Void, Never>?
+    private var overviewTask: Task<Void, Never>?
     private var fetchRevision = 0
     private var overviewRevision = 0
     // Identifiers own queue membership; trashBin is its currently accessible projection.
@@ -65,6 +75,10 @@ final class PhotoManager: NSObject, ObservableObject {
     private let viewedIdentifiersKey = "photoManager.viewedIdentifiers.v1"
 
     // MARK: Derived State
+
+    var calendarSnapshotID: PhotoLibrarySnapshotID {
+        PhotoLibrarySnapshotID(library: libraryRevision, queue: pendingQueueRevision)
+    }
 
     var canUndo: Bool {
         guard let action = history.last else { return false }
@@ -107,6 +121,9 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     deinit {
+        libraryRefreshTask?.cancel()
+        authorizationTask?.cancel()
+        overviewTask?.cancel()
         overviewRefreshTask?.cancel()
         photoFetchTask?.cancel()
         similarityScanTask?.cancel()
@@ -118,27 +135,65 @@ final class PhotoManager: NSObject, ObservableObject {
     func checkPermission() {
         let status = photoService.authorizationStatus
         applyAuthorization(status)
-        if status == .notDetermined {
-            Task { applyAuthorization(await photoService.requestAuthorization()) }
+        if status == .notDetermined, authorizationTask == nil {
+            authorizationTask = Task { [weak self, photoService] in
+                _ = await photoService.requestAuthorization()
+                guard let self, !Task.isCancelled else { return }
+                self.authorizationTask = nil
+                // Read the current status, not a potentially superseded response.
+                self.applyAuthorization(photoService.authorizationStatus)
+            }
         }
     }
 
     private func applyAuthorization(_ status: PHAuthorizationStatus) {
+        if lastAuthorization != status {
+            authorizationRevision += 1
+            lastAuthorization = status
+        }
         isAuthorized = status == .authorized || status == .limited
         isLimited = status == .limited
+        libraryRevision += 1
+        fetchRevision += 1
+        overviewRevision += 1
+        pendingQueueFetchRevision += 1
+        libraryRefreshTask?.cancel()
+        photoFetchTask?.cancel()
+        overviewTask?.cancel()
+        overviewRefreshTask?.cancel()
+        invalidateSimilarityScan()
         guard isAuthorized else {
-            fetchRevision += 1
-            overviewRevision += 1
             assets = []
+            trashBin = []
+            filterCounts = [:]
+            similarityGroups = []
+            favoriteStates = [:]
             loadedFilter = nil
             isLoading = false
+            deletionError = nil
+            endSession()
+            reviewedIdentifiers.removeAll()
+            sessionDeletedIdentifiers.removeAll()
+            sessionSummary = CleaningSessionSummary()
+            AssetImagePipeline.shared.invalidate()
             return
         }
-        Task {
-            await reconcilePendingQueue()
-            fetchPhotos()
-            refreshLibraryOverview()
+        libraryRefreshTask = Task { [weak self] in
+            await self?.refreshLibraryState()
         }
+    }
+
+    /// Reconciles accessible projections without changing persisted queue membership.
+    /// Session and library revisions protect against navigation and permission changes
+    /// while PhotoKit is responding. Kept async so callers can await a complete refresh.
+    func refreshLibraryState() async {
+        let revision = libraryRevision
+        await reconcilePendingQueue()
+        guard !Task.isCancelled, isAuthorized, revision == libraryRevision else { return }
+        await reconcileSession(libraryRevision: revision)
+        guard !Task.isCancelled, isAuthorized, revision == libraryRevision else { return }
+        fetchPhotos()
+        refreshLibraryOverview()
     }
 
     // MARK: Fetching
@@ -200,14 +255,17 @@ final class PhotoManager: NSObject, ObservableObject {
         isLoading = currentFilter == .similar
         if currentFilter == .similar { loadedFilter = nil }
         similarityProgress = 0
+        let revision = libraryRevision
         similarityScanTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             let source = await self.photoService.fetchAssets(filter: .similar)
             guard !Task.isCancelled else { return }
             let groups = await LocalSimilarityService.shared.similarGroups(in: source) { progress in
+                guard !Task.isCancelled, self.isAuthorized, revision == self.libraryRevision else { return }
                 self.similarityProgress = progress
             }
             guard !Task.isCancelled else { return }
+            guard self.isAuthorized, revision == self.libraryRevision else { return }
             self.similarityGroups = groups
             self.hasCompletedSimilarityScan = true
             self.similarityProgress = nil
@@ -257,12 +315,13 @@ final class PhotoManager: NSObject, ObservableObject {
         guard isAuthorized else { return }
         overviewRevision += 1
         let revision = overviewRevision
-        Task {
+        overviewTask?.cancel()
+        overviewTask = Task {
             let trashIDs = Set(pendingDeletionIdentifiers)
             var counts: [PhotoFilter: Int] = [:]
             for filter in PhotoFilter.allCases where filter != .similar {
                 let fetched = await photoService.fetchAssets(filter: filter)
-                guard revision == overviewRevision, isAuthorized else { return }
+                guard !Task.isCancelled, revision == overviewRevision, isAuthorized else { return }
                 counts[filter] = fetched.lazy.filter { !trashIDs.contains($0.localIdentifier) }.count
             }
             if let similarCount = filterCounts[.similar] {
@@ -285,6 +344,8 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func beginSession(with requestedAssets: [PHAsset]) {
+        guard isAuthorized else { return }
+        sessionRevision += 1
         pauseSimilarityScan()
         let trashIDs = Set(pendingDeletionIdentifiers)
         let available = orderedForCleaning(
@@ -347,7 +408,8 @@ final class PhotoManager: NSObject, ObservableObject {
 
     @discardableResult
     func loadNextGroup() -> Bool {
-        guard sessionCursor < sessionQueue.count else { return false }
+        guard isAuthorized, sessionCursor < sessionQueue.count else { return false }
+        sessionRevision += 1
         history.removeAll()
         removedSessionIndices.removeAll()
         groupReviewedIdentifiers.removeAll()
@@ -395,7 +457,10 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func fetchCalendarAssets() async -> [PHAsset] {
+        guard isAuthorized, !Task.isCancelled else { return [] }
+        let revision = libraryRevision
         let fetched = await photoService.fetchAssets(filter: .all)
+        guard !Task.isCancelled, isAuthorized, revision == libraryRevision else { return [] }
         let trashIDs = Set(pendingDeletionIdentifiers)
         return fetched.filter { !trashIDs.contains($0.localIdentifier) }
     }
@@ -414,11 +479,13 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func endSession() {
+        sessionRevision += 1
         pauseSimilarityScan()
         isSessionActive = false
         AssetImagePipeline.shared.stopCaching()
         sessionAssets.removeAll()
         sessionQueue.removeAll()
+        sessionCursor = 0
         history.removeAll()
         removedSessionIndices.removeAll()
         currentGroupIdentifiers.removeAll()
@@ -427,6 +494,48 @@ final class PhotoManager: NSObject, ObservableObject {
         sessionGroupCount = 0
         sessionGroupReviewedCount = 0
         sessionGroupTotalCount = 0
+    }
+
+    private func reconcileSession(libraryRevision revision: Int) async {
+        guard isSessionActive else { return }
+        let session = sessionRevision
+        sessionFetchRevision += 1
+        let request = sessionFetchRevision
+        let favorites = favoriteRevision
+        let identifiers = sessionQueue.map(\.localIdentifier)
+        let fetched = await photoService.fetchAssets(localIdentifiers: identifiers)
+        guard !Task.isCancelled, isAuthorized, revision == libraryRevision,
+              session == sessionRevision, request == sessionFetchRevision, isSessionActive else { return }
+        let accessible = Dictionary(fetched.map { ($0.localIdentifier, $0) },
+                                    uniquingKeysWith: { _, latest in latest })
+        let availableIDs = Set(accessible.keys)
+        let pendingIDs = Set(pendingDeletionIdentifiers)
+        // Preserve review order and the boundary between visited and future groups.
+        let previous = sessionQueue.prefix(sessionCursor).compactMap { accessible[$0.localIdentifier] }
+        let remaining = sessionQueue.dropFirst(sessionCursor).compactMap { asset -> PHAsset? in
+            guard !pendingIDs.contains(asset.localIdentifier) else { return nil }
+            return accessible[asset.localIdentifier]
+        }
+        sessionQueue = previous + remaining
+        sessionCursor = previous.count
+        sessionAssets = sessionAssets.compactMap { accessible[$0.localIdentifier] }
+        currentGroupIdentifiers.formIntersection(availableIDs)
+        groupReviewedIdentifiers.formIntersection(currentGroupIdentifiers)
+        sessionGroupReviewedCount = groupReviewedIdentifiers.count
+        sessionGroupTotalCount = sessionAssets.count
+        sessionGroupCount = sessionGroupNumber + Int(ceil(
+            Double(remaining.count) / Double(settings.cleaningGroupSize.rawValue)
+        ))
+        removedSessionIndices = removedSessionIndices.filter { availableIDs.contains($0.key) }
+        history = history.compactMap { action in
+            guard let asset = accessible[action.asset.localIdentifier] else { return nil }
+            return ReviewAction(id: action.id, asset: asset, index: action.index, kind: action.kind)
+        }
+        favoriteStates = favoriteStates.filter { availableIDs.contains($0.key) }
+        for asset in fetched where favorites == favoriteRevision && !pendingFavoriteActions.values.contains(asset.localIdentifier) {
+            favoriteStates[asset.localIdentifier] = asset.isFavorite
+        }
+        AssetImagePipeline.shared.stopCaching()
     }
 
     func clearViewedHistory() {
@@ -438,6 +547,7 @@ final class PhotoManager: NSObject, ObservableObject {
     // MARK: Review Actions
 
     func queueSimilarPhotosForDeletion(_ targets: [PHAsset]) {
+        guard isAuthorized else { return }
         let trashIDs = Set(pendingDeletionIdentifiers)
         let uniqueTargets = Dictionary(
             uniqueKeysWithValues: targets.map { ($0.localIdentifier, $0) }
@@ -468,9 +578,10 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     private func deleteSimilarAssets(_ targets: [PHAsset]) async {
-        guard !targets.isEmpty, !isDeleting else { return }
+        guard isAuthorized, !targets.isEmpty, !isDeleting else { return }
         deletionError = nil
         isDeleting = true
+        let authorization = authorizationRevision
         defer { isDeleting = false }
         do {
             try await photoService.deleteAssets(targets)
@@ -479,12 +590,13 @@ final class PhotoManager: NSObject, ObservableObject {
             fetchPhotos()
             refreshLibraryOverview()
         } catch {
+            guard isAuthorized, authorization == authorizationRevision else { return }
             deletionError = isDeletionCancellation(error) ? nil : error
         }
     }
 
     func markForDeletion(_ asset: PHAsset, at index: Int) {
-        guard !pendingDeletionIdentifiers.contains(asset.localIdentifier) else { return }
+        guard isAuthorized, !pendingDeletionIdentifiers.contains(asset.localIdentifier) else { return }
         recordViewed(asset)
         let removalIndex = sessionAssets.firstIndex {
             $0.localIdentifier == asset.localIdentifier
@@ -507,6 +619,7 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func markFavorite(_ asset: PHAsset, at index: Int) {
+        guard isAuthorized else { return }
         recordViewed(asset)
         let previous = isFavorite(asset)
         let target = !previous
@@ -521,12 +634,21 @@ final class PhotoManager: NSObject, ObservableObject {
                 kind: .favorite(previous: previous, target: target)
             )
         )
+        let authorization = authorizationRevision
+        let session = sessionRevision
+        favoriteRevision += 1
+        pendingFavoriteActions[actionID] = asset.localIdentifier
         Task {
+            defer { pendingFavoriteActions[actionID] = nil }
             do {
                 try await photoService.setFavorite(target, for: asset)
+                guard isAuthorized, authorization == authorizationRevision,
+                      session == sessionRevision, currentGroupIdentifiers.contains(asset.localIdentifier) else { return }
                 let desired = favoriteStates[asset.localIdentifier] ?? target
                 if desired != target { try? await photoService.setFavorite(desired, for: asset) }
             } catch {
+                guard isAuthorized, authorization == authorizationRevision,
+                      session == sessionRevision, currentGroupIdentifiers.contains(asset.localIdentifier) else { return }
                 history.removeAll { $0.id == actionID }
                 if favoriteStates[asset.localIdentifier] == target {
                     favoriteStates[asset.localIdentifier] = previous
@@ -544,7 +666,7 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     func undoLastAction() async -> UndoResult? {
-        guard canUndo, let action = history.popLast() else { return nil }
+        guard isAuthorized, canUndo, let action = history.popLast() else { return nil }
         let restoresDeletedAsset: Bool
         switch action.kind {
         case .deletion:
@@ -557,6 +679,7 @@ final class PhotoManager: NSObject, ObservableObject {
             scheduleLibraryOverviewRefresh()
         case let .favorite(previous, _):
             restoresDeletedAsset = false
+            favoriteRevision += 1
             let current = isFavorite(action.asset)
             favoriteStates[action.asset.localIdentifier] = previous
             if current != previous {
@@ -580,7 +703,7 @@ final class PhotoManager: NSObject, ObservableObject {
     @discardableResult
     func restoreFromTrash(_ asset: PHAsset) -> Bool {
         // Once handed to PhotoKit, a local restore cannot cancel the system transaction.
-        guard !isDeleting, pendingDeletionIdentifiers.contains(asset.localIdentifier) else { return false }
+        guard isAuthorized, !isDeleting, pendingDeletionIdentifiers.contains(asset.localIdentifier) else { return false }
         removeFromPendingQueue([asset.localIdentifier])
         removeFromSessionDeletionSummary(asset)
         history.removeAll { $0.asset.localIdentifier == asset.localIdentifier }
@@ -608,7 +731,7 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 
     private func deleteAssets(_ requestedTargets: [PHAsset], restoreOnFailureAt index: Int? = nil) async {
-        guard !isDeleting else { return }
+        guard isAuthorized, !isDeleting else { return }
         // Revalidate when the task starts: a synchronous restore may have already won.
         let pendingIDs = Set(pendingDeletionIdentifiers)
         var seen = Set<String>()
@@ -618,6 +741,8 @@ final class PhotoManager: NSObject, ObservableObject {
         guard !targets.isEmpty else { return }
         deletionError = nil
         isDeleting = true
+        let authorization = authorizationRevision
+        let session = sessionRevision
         pendingQueueRevision += 1
         defer {
             pendingQueueRevision += 1
@@ -633,8 +758,9 @@ final class PhotoManager: NSObject, ObservableObject {
             fetchPhotos()
             refreshLibraryOverview()
         } catch {
+            guard isAuthorized, authorization == authorizationRevision else { return }
             deletionError = isDeletionCancellation(error) ? nil : error
-            if let index, let asset = targets.first {
+            if let index, let asset = targets.first, session == sessionRevision {
                 removeFromPendingQueue([asset.localIdentifier])
                 insertIntoSession(asset, at: index)
                 removedSessionIndices[asset.localIdentifier] = nil
@@ -761,6 +887,11 @@ final class PhotoManager: NSObject, ObservableObject {
     }
 }
 
+struct PhotoLibrarySnapshotID: Equatable {
+    let library: Int
+    let queue: Int
+}
+
 // MARK: - Review History
 
 private struct ReviewAction {
@@ -784,11 +915,9 @@ struct UndoResult {
 
 extension PhotoManager: PHPhotoLibraryChangeObserver {
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
-        Task { @MainActor in
-            invalidateSimilarityScan()
-            await reconcilePendingQueue()
-            fetchPhotos()
-            refreshLibraryOverview()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.applyAuthorization(self.photoService.authorizationStatus)
         }
     }
 }

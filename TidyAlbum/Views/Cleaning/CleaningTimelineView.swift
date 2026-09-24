@@ -275,9 +275,9 @@ final class CleaningTimelineViewController: UIViewController,
         settings: SettingsStore,
         onSelect: @escaping (PHAsset) -> Void
     ) {
-        let idsChanged = self.assets.count != assets.count
-            || self.assets.first?.localIdentifier != assets.first?.localIdentifier
-            || self.assets.last?.localIdentifier != assets.last?.localIdentifier
+        let idsChanged = !self.assets.elementsEqual(assets) {
+            $0.localIdentifier == $1.localIdentifier && $0.modificationDate == $1.modificationDate
+        }
         let selectionChanged = self.selectedAssetID != selectedAssetID
         self.assets = assets
         self.selectedAssetID = selectedAssetID

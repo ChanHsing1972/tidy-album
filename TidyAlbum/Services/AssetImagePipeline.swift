@@ -11,6 +11,7 @@ final class AssetImagePipeline {
 
     private let manager = PHCachingImageManager()
     private let cache = NSCache<NSString, UIImage>()
+    private var requests: [UUID: PHImageRequestID] = [:]
     private var preheatedAssets: [String: PHAsset] = [:]
     private var preheatTargetSize = CGSize.zero
 
@@ -46,27 +47,33 @@ final class AssetImagePipeline {
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
 
-        return manager.requestImage(
+        let token = UUID()
+        let requestID = manager.requestImage(
             for: asset,
             targetSize: targetSize,
             contentMode: contentMode,
             options: options
         ) { [weak self] image, info in
-            guard let image else { return }
             Task { @MainActor in
+                guard let self, self.requests[token] != nil else { return }
                 let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
                 let isFinal = !isDegraded
+                if isFinal { self.requests[token] = nil }
+                guard let image, !(info?[PHImageCancelledKey] as? Bool ?? false) else { return }
                 if isFinal {
                     let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
-                    self?.cache.setObject(image, forKey: key, cost: cost)
+                    self.cache.setObject(image, forKey: key, cost: cost)
                 }
                 completion(image, isFinal)
             }
         }
+        requests[token] = requestID
+        return requestID
     }
 
     func cancel(_ requestID: PHImageRequestID?) {
         guard let requestID else { return }
+        requests = requests.filter { $0.value != requestID }
         manager.cancelImageRequest(requestID)
     }
 
@@ -107,6 +114,15 @@ final class AssetImagePipeline {
         manager.stopCachingImagesForAllAssets()
         preheatedAssets.removeAll()
         preheatTargetSize = .zero
+    }
+
+    /// Discard decoded images and prevent late PhotoKit callbacks from repopulating them.
+    func invalidate() {
+        let pending = Array(requests.values)
+        requests.removeAll()
+        pending.forEach { manager.cancelImageRequest($0) }
+        cache.removeAllObjects()
+        stopCaching()
     }
 
     private func cacheKey(

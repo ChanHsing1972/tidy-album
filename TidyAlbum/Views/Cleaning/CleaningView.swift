@@ -59,78 +59,82 @@ struct CleaningView: View {
         let _ = inject
         NavigationStack {
             ZStack {
-                CleaningUIKitBackdrop(
-                    session: renderingSession,
-                    assets: manager.sessionAssets,
-                    selectedAssetID: selectedAssetID,
-                    sessionGroupNumber: manager.sessionGroupNumber
-                )
-                    .ignoresSafeArea()
-
-                if hasLoadedFullTimelineAssets && !availableTimelineAssets.isEmpty {
-                    CleaningTimelineView(
-                        session: timelineSession,
-                        assets: availableTimelineAssets,
+                if !manager.isAuthorized {
+                    PermissionView(settings: settings)
+                } else {
+                    CleaningUIKitBackdrop(
+                        session: renderingSession,
+                        assets: manager.sessionAssets,
                         selectedAssetID: selectedAssetID,
-                        settings: settings,
-                        onSelect: selectTimelineAsset
+                        sessionGroupNumber: manager.sessionGroupNumber
                     )
-                    .ignoresSafeArea()
-                    .allowsHitTesting(showsTimeline)
-                    .zIndex(1)
-                }
+                        .ignoresSafeArea()
 
-                Group {
-                    if manager.sessionGroupNumber == 0 && manager.sessionAssets.isEmpty {
-                        emptyState
-                    } else {
-                        CleaningUIKitCardStage(
-                            session: renderingSession,
-                            assets: manager.sessionAssets,
-                            selectedAssetID: $selectedAssetID,
-                            selectionAnimationRequest: selectionAnimationRequest,
+                    if hasLoadedFullTimelineAssets && !availableTimelineAssets.isEmpty {
+                        CleaningTimelineView(
+                            session: timelineSession,
+                            assets: availableTimelineAssets,
+                            selectedAssetID: selectedAssetID,
                             settings: settings,
-                            hapticsEnabled: settings.hapticsEnabled,
-                            hasNextGroup: manager.hasNextGroup,
-                            groupNumber: manager.sessionGroupNumber,
-                            groupCount: manager.sessionGroupCount,
-                            isFavorite: manager.isFavorite,
-                            onDelete: manager.markForDeletion,
-                            onToggleFavorite: manager.markFavorite,
-                            onAddToAlbum: { albumSelection = AlbumAssetSelection(asset: $0) },
-                            timelineTargetColumn: timelineTargetColumn,
-                            isTimelineAvailable: hasLoadedFullTimelineAssets || !availableTimelineAssets.isEmpty,
-                            timelineSession: timelineSession,
-                            onTimelinePreviewChange: { visible in
-                                withAnimation(.easeOut(duration: 0.14)) {
-                                    isTimelinePreviewVisible = visible
-                                }
-                            },
-                            onShowTimeline: {
-                                guard hasLoadedFullTimelineAssets else { return }
-                                timelineSession.setVisible(true)
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showsTimeline = true
-                                    isTimelinePreviewVisible = false
-                                }
-                            },
-                            onImmersiveChange: { immersive in
-                                withAnimation(.easeInOut(duration: 0.16)) { isInspecting = immersive }
-                            },
-                            onCompletionControlsHiddenChange: { hidden in
-                                withAnimation(.easeInOut(duration: 0.22)) {
-                                    completionControlsHidden = hidden
-                                }
-                            },
-                            onSelectionAnimationFinished: selectionAnimationFinished,
-                            onNextGroup: loadNextGroup,
-                            onEnd: finishSession
+                            onSelect: selectTimelineAsset
                         )
+                        .ignoresSafeArea()
+                        .allowsHitTesting(showsTimeline)
+                        .zIndex(1)
                     }
+
+                    Group {
+                        if manager.sessionGroupNumber == 0 && manager.sessionAssets.isEmpty {
+                            emptyState
+                        } else {
+                            CleaningUIKitCardStage(
+                                session: renderingSession,
+                                assets: manager.sessionAssets,
+                                selectedAssetID: $selectedAssetID,
+                                selectionAnimationRequest: selectionAnimationRequest,
+                                settings: settings,
+                                hapticsEnabled: settings.hapticsEnabled,
+                                hasNextGroup: manager.hasNextGroup,
+                                groupNumber: manager.sessionGroupNumber,
+                                groupCount: manager.sessionGroupCount,
+                                isFavorite: manager.isFavorite,
+                                onDelete: manager.markForDeletion,
+                                onToggleFavorite: manager.markFavorite,
+                                onAddToAlbum: { albumSelection = AlbumAssetSelection(asset: $0) },
+                                timelineTargetColumn: timelineTargetColumn,
+                                isTimelineAvailable: hasLoadedFullTimelineAssets || !availableTimelineAssets.isEmpty,
+                                timelineSession: timelineSession,
+                                onTimelinePreviewChange: { visible in
+                                    withAnimation(.easeOut(duration: 0.14)) {
+                                        isTimelinePreviewVisible = visible
+                                    }
+                                },
+                                onShowTimeline: {
+                                    guard hasLoadedFullTimelineAssets else { return }
+                                    timelineSession.setVisible(true)
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        showsTimeline = true
+                                        isTimelinePreviewVisible = false
+                                    }
+                                },
+                                onImmersiveChange: { immersive in
+                                    withAnimation(.easeInOut(duration: 0.16)) { isInspecting = immersive }
+                                },
+                                onCompletionControlsHiddenChange: { hidden in
+                                    withAnimation(.easeInOut(duration: 0.22)) {
+                                        completionControlsHidden = hidden
+                                    }
+                                },
+                                onSelectionAnimationFinished: selectionAnimationFinished,
+                                onNextGroup: loadNextGroup,
+                                onEnd: finishSession
+                            )
+                        }
+                    }
+                    .opacity(showsTimeline ? 0 : 1)
+                    .allowsHitTesting(!showsTimeline)
+                    .zIndex(2)
                 }
-                .opacity(showsTimeline ? 0 : 1)
-                .allowsHitTesting(!showsTimeline)
-                .zIndex(2)
             }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { toolbar }
@@ -140,7 +144,9 @@ struct CleaningView: View {
             .toolbar(showsTimeline ? .hidden : .visible, for: .bottomBar)
         }
         .tint(.primary)
+        .onDisappear { isExiting = true }
         .onAppear {
+            isExiting = false
             selectInitialAsset()
             // A first local snapshot makes the timeline available immediately;
             // the full PhotoKit fetch below replaces it without changing the
@@ -150,9 +156,12 @@ struct CleaningView: View {
                 rebuildTimelineSnapshot()
             }
         }
-        .task {
-            guard !hasLoadedFullTimelineAssets else { return }
+        .task(id: manager.calendarSnapshotID) {
+            let revision = manager.libraryRevision
+            guard manager.isAuthorized else { return }
             let fetched = await manager.fetchCalendarAssets()
+            guard !Task.isCancelled, manager.isAuthorized,
+                  revision == manager.libraryRevision else { return }
             timelineAssets = fetched
             rebuildTimelineSnapshot()
             hasLoadedFullTimelineAssets = true
@@ -193,10 +202,27 @@ struct CleaningView: View {
             manager.recordViewed(manager.sessionAssets[index])
             manager.preheat(around: index)
         }
-        .onChange(of: manager.sessionAssets.count) { _, _ in
-            guard selectedAssetID != CleaningPageID.groupCompletion else { return }
-            guard !manager.sessionAssets.contains(where: { $0.localIdentifier == selectedAssetID }) else { return }
-            selectedAssetID = manager.sessionAssets.first?.localIdentifier ?? CleaningPageID.groupCompletion
+        .onChange(of: manager.sessionAssets.map(\.localIdentifier)) { previous, current in
+            if let selection = detailsSelection, !current.contains(selection.id) { detailsSelection = nil }
+            if let selection = albumSelection, !current.contains(selection.id) { albumSelection = nil }
+            guard selectedAssetID != CleaningPageID.groupCompletion,
+                  !current.contains(selectedAssetID) else { return }
+            let index = previous.firstIndex(of: selectedAssetID) ?? 0
+            selectedAssetID = current.isEmpty ? CleaningPageID.groupCompletion : current[min(index, current.count - 1)]
+        }
+        .onChange(of: manager.isAuthorized) { _, authorized in
+            guard !authorized else { return }
+            detailsSelection = nil
+            albumSelection = nil
+            activityItems = nil
+            showsTrash = false
+            showsTimeline = false
+            isTimelinePreviewVisible = false
+            timelineAssets = []
+            availableTimelineAssets = []
+            timelineTargetColumns = [:]
+            hasLoadedFullTimelineAssets = false
+            exitSession()
         }
         .onChange(of: manager.trashBin.map(\.localIdentifier)) { _, _ in
             rebuildTimelineSnapshot()
@@ -376,9 +402,12 @@ struct CleaningView: View {
     private func prepareShare() {
         guard let currentAsset, !isPreparingShare else { return }
         isPreparingShare = true
+        let revision = manager.libraryRevision
         Task {
             let values = await AssetSharingService.shared.activityItems(for: currentAsset)
             isPreparingShare = false
+            guard !isExiting, manager.isAuthorized, revision == manager.libraryRevision,
+                  manager.sessionAssets.contains(where: { $0.localIdentifier == currentAsset.localIdentifier }) else { return }
             if values.isEmpty { showsShareError = true }
             else { activityItems = ActivityItems(values: values) }
         }

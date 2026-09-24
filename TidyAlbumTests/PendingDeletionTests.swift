@@ -165,16 +165,167 @@ struct PendingDeletionTests {
         fixture.service.authorizationStatus = .authorized
         fixture.manager.checkPermission()
         await fixture.service.lookup.waitForRequest()
-        fixture.manager.checkPermission()
+        fixture.service.lookup.finish([fixture.assets[0]])
+        await fixture.waitForLibraryReady()
+
+        let older = Task { await fixture.manager.refreshLibraryState() }
+        await fixture.service.lookup.waitForRequest()
+        let newer = Task { await fixture.manager.refreshLibraryState() }
         await fixture.service.lookup.waitForRequest(count: 2)
         fixture.service.lookup.finish([fixture.assets[0]], at: 1)
-        await fixture.waitForLibraryReady()
-        let previousFetchCount = fixture.service.filterFetchCount
+        await newer.value
         fixture.service.lookup.finish([])
-        await fixture.waitForLibraryReady(after: previousFetchCount)
+        await older.value
         #expect(fixture.manager.trashBin.map(\.localIdentifier) == [fixture.assets[0].localIdentifier])
         #expect(fixture.persistedIDs == [fixture.assets[0].localIdentifier])
     }
+
+    @Test func revocationClearsDisplayAndUndoButPreservesPendingIntent() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.manager.beginSession(with: fixture.assets)
+        fixture.manager.markForDeletion(fixture.assets[0], at: 0)
+        #expect(fixture.manager.canUndo)
+        fixture.service.authorizationStatus = .denied
+        fixture.manager.checkPermission()
+        #expect(!fixture.manager.isAuthorized)
+        #expect(fixture.manager.sessionAssets.isEmpty)
+        #expect(fixture.manager.trashBin.isEmpty)
+        #expect(fixture.manager.filterCounts.isEmpty)
+        #expect(!fixture.manager.canUndo)
+        #expect(!fixture.manager.hasNextGroup)
+        #expect(fixture.manager.sessionGroupNumber == 0)
+        #expect(fixture.persistedIDs == [fixture.assets[0].localIdentifier])
+        // A gesture callback already queued by UIKit must not resurrect display state.
+        fixture.manager.markForDeletion(fixture.assets[1], at: 1)
+        fixture.manager.beginSession(with: fixture.assets)
+        #expect(fixture.manager.sessionAssets.isEmpty)
+        #expect(fixture.persistedIDs == [fixture.assets[0].localIdentifier])
+        let restored = fixture.manager.restoreFromTrash(fixture.assets[0])
+        #expect(!restored)
+    }
+
+    @Test func calendarReadFinishingAfterRevocationReturnsNoAssets() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.service.gatesFilterReads = true
+        let calendar = Task { await fixture.manager.fetchCalendarAssets() }
+        await fixture.service.filterRead.waitForRequest()
+        fixture.service.authorizationStatus = .denied
+        fixture.manager.checkPermission()
+        fixture.service.filterRead.finish(fixture.assets)
+        #expect(await calendar.value.isEmpty)
+    }
+
+    @Test func cancelledCalendarReadDoesNotReturnAnOldSnapshot() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.service.gatesFilterReads = true
+        let calendar = Task { await fixture.manager.fetchCalendarAssets() }
+        await fixture.service.filterRead.waitForRequest()
+        calendar.cancel()
+        fixture.service.filterRead.finish(fixture.assets)
+        #expect(await calendar.value.isEmpty)
+    }
+
+    @Test func externalRemovalPrunesSessionAndUndoWithoutErasingPendingIntent() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.manager.beginSession(with: fixture.assets)
+        fixture.manager.markForDeletion(fixture.assets[0], at: 0)
+        fixture.manager.markFavorite(fixture.assets[1], at: 0)
+        let refresh = Task { await fixture.manager.refreshLibraryState() }
+        await fixture.service.lookup.waitForRequest()
+        fixture.service.lookup.finish([]) // Pending item is no longer accessible.
+        await fixture.service.lookup.waitForRequest()
+        fixture.service.lookup.finish([]) // Both session items were removed externally.
+        await refresh.value
+        #expect(fixture.manager.sessionAssets.isEmpty)
+        #expect(fixture.manager.trashBin.isEmpty)
+        #expect(!fixture.manager.canUndo)
+        #expect(fixture.manager.sessionGroupTotalCount == 0)
+        #expect(fixture.manager.sessionGroupReviewedCount == 0)
+        #expect(fixture.persistedIDs == [fixture.assets[0].localIdentifier])
+    }
+
+    @Test func lateSessionLookupCannotOverwriteANewSession() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.manager.beginSession(with: [fixture.assets[0]])
+        let refresh = Task { await fixture.manager.refreshLibraryState() }
+        await fixture.service.lookup.waitForRequest()
+        fixture.manager.beginSession(with: [fixture.assets[1]])
+        fixture.service.lookup.finish([])
+        await refresh.value
+        #expect(fixture.manager.sessionAssets.map(\.localIdentifier) == [fixture.assets[1].localIdentifier])
+        #expect(fixture.manager.sessionGroupTotalCount == 1)
+    }
+
+    @Test func latestSessionResponseWinsWhenLookupsFinishOutOfOrder() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.manager.beginSession(with: fixture.assets)
+        let older = Task { await fixture.manager.refreshLibraryState() }
+        await fixture.service.lookup.waitForRequest()
+        let newer = Task { await fixture.manager.refreshLibraryState() }
+        await fixture.service.lookup.waitForRequest(count: 2)
+        fixture.service.lookup.finish([fixture.assets[1]], at: 1)
+        await newer.value
+        fixture.service.lookup.finish(fixture.assets)
+        await older.value
+        #expect(fixture.manager.sessionAssets.map(\.localIdentifier) == [fixture.assets[1].localIdentifier])
+    }
+
+    @Test func inaccessibleFutureGroupsCannotBeStarted() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.manager.settings.cleaningGroupSize = .develop
+        fixture.manager.beginSession(with: fixture.assets)
+        let current = try #require(fixture.manager.sessionAssets.first)
+        #expect(fixture.manager.hasNextGroup)
+        let refresh = Task { await fixture.manager.refreshLibraryState() }
+        await fixture.service.lookup.waitForRequest()
+        fixture.service.lookup.finish([current])
+        await refresh.value
+        #expect(!fixture.manager.hasNextGroup)
+        #expect(fixture.manager.sessionGroupCount == 1)
+        let advanced = fixture.manager.loadNextGroup()
+        #expect(!advanced)
+        #expect(fixture.manager.sessionAssets.map(\.localIdentifier) == [current.localIdentifier])
+    }
+
+    @Test func deletionFailureAfterRevocationDoesNotRepopulateDisplay() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.manager.markForDeletion(fixture.assets[0], at: 0)
+        let deletion = Task { await fixture.manager.emptyTrash() }
+        await fixture.service.deletion.waitForRequest()
+        fixture.service.authorizationStatus = .denied
+        fixture.manager.checkPermission()
+        #expect(fixture.manager.isDeleting) // An already submitted system transaction is still pending.
+        fixture.service.deletion.finish(.failure(QueueTestError.rejected))
+        await deletion.value
+        #expect(!fixture.manager.isDeleting)
+        #expect(fixture.manager.deletionError == nil)
+        #expect(fixture.manager.trashBin.isEmpty)
+        #expect(fixture.manager.filterCounts.isEmpty)
+        #expect(fixture.persistedIDs == [fixture.assets[0].localIdentifier])
+    }
+
+    @Test func lateSessionLookupCannotReopenAnEndedSession() async throws {
+        let fixture = try await QueueFixture()
+        await fixture.waitForLibraryReady()
+        fixture.manager.beginSession(with: fixture.assets)
+        let refresh = Task { await fixture.manager.refreshLibraryState() }
+        await fixture.service.lookup.waitForRequest()
+        fixture.manager.endSession()
+        fixture.service.lookup.finish(fixture.assets)
+        await refresh.value
+        #expect(fixture.manager.sessionAssets.isEmpty)
+        #expect(fixture.manager.sessionGroupNumber == 0)
+        #expect(!fixture.manager.hasNextGroup)
+    }
+
 }
 
 private enum QueueTestError: Error { case rejected, simulatorRequired, photosAccessRequired, missingAssets }
@@ -215,6 +366,7 @@ private enum QueueTestError: Error { case rejected, simulatorRequired, photosAcc
         assets = (0..<result.count).map { result.object(at: $0) }
         defaults = UserDefaults(suiteName: suiteName)!
         if persistFirstAsset { defaults.set([assets[0].localIdentifier], forKey: Self.queueKey) }
+        if !persistFirstAsset { service.authorizationStatus = .authorized }
         manager = PhotoManager(photoService: service, settings: SettingsStore(defaults: defaults),
                                analytics: AnalyticsStore(defaults: defaults), defaults: defaults)
         #endif
@@ -255,6 +407,8 @@ private enum QueueTestError: Error { case rejected, simulatorRequired, photosAcc
     var authorizationStatus: PHAuthorizationStatus = .denied
     let lookup = ResponseGate<[PHAsset]>()
     let deletion = ResponseGate<Result<Void, Error>>()
+    let filterRead = ResponseGate<[PHAsset]>()
+    var gatesFilterReads = false
     var deletedIDs: [[String]] = []
     private(set) var filterFetchCount = 0
     private var filterArrival: CheckedContinuation<Void, Never>?
@@ -264,6 +418,7 @@ private enum QueueTestError: Error { case rejected, simulatorRequired, photosAcc
         filterFetchCount += 1
         filterArrival?.resume()
         filterArrival = nil
+        if gatesFilterReads { return await filterRead.request() }
         return []
     }
     func waitForFilterFetch(after count: Int) async {
