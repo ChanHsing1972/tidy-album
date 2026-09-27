@@ -252,11 +252,19 @@ final class TidyAlbumUITests: XCTestCase {
         close?.tap()
 
         currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 5))
+        let fittedFrame = currentCard.frame
         currentCard.pinch(withScale: 1.8, velocity: 1)
+        attachScreenshot(named: "Cleaning - Inspection After Timeline", app: app)
+        let inspection = XCTAttachment(string: "Fitted frame: \(fittedFrame)\nAfter pinch: \(currentCard.frame)\n\(app.debugDescription)")
+        inspection.name = "Cleaning - Inspection hierarchy"
+        inspection.lifetime = .keepAlways
+        add(inspection)
         XCTAssertTrue(
             waitForButtonsToDisappear(in: app, labels: ["详情", "Details"], timeout: 2),
             "Pinching outward did not fade the surrounding UI"
         )
+        XCTAssertGreaterThan(currentCard.frame.width, fittedFrame.width * 1.1, "The photo did not enter inspection")
+        assertInspectionChrome(hidden: true, in: app)
         currentCard.pinch(withScale: 0.5, velocity: -1)
         XCTAssertFalse(
             timeline.waitForExistence(timeout: 0.5),
@@ -266,6 +274,36 @@ final class TidyAlbumUITests: XCTestCase {
             firstExistingButton(in: app, labels: ["详情", "Details"], timeout: 3),
             "Returning to the fitted scale did not restore the surrounding UI"
         )
+        currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
+        XCTAssertEqual(currentCard.frame.minY, fittedFrame.minY, accuracy: 2)
+        XCTAssertEqual(currentCard.frame.height, fittedFrame.height, accuracy: 2)
+        assertInspectionChrome(hidden: false, in: app)
+        attachScreenshot(named: "Cleaning - Restored After Inspection", app: app)
+
+        // Repeated direct inspections must restore the same controls and geometry.
+        for _ in 0..<2 {
+            currentCard.pinch(withScale: 1.6, velocity: 1)
+            XCTAssertTrue(waitForButtonsToDisappear(in: app, labels: ["详情", "Details"], timeout: 2))
+            assertInspectionChrome(hidden: true, in: app)
+            currentCard.pinch(withScale: 0.5, velocity: -1)
+            currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
+            XCTAssertEqual(currentCard.frame.minY, fittedFrame.minY, accuracy: 2)
+            XCTAssertEqual(currentCard.frame.height, fittedFrame.height, accuracy: 2)
+            assertInspectionChrome(hidden: false, in: app)
+            XCTAssertFalse(timeline.exists)
+        }
+    }
+
+    @MainActor private func assertInspectionChrome(hidden: Bool, in app: XCUIApplication) {
+        for control in ["close", "trash", "undo", "details", "share"] {
+            let button = app.buttons["tidyalbum.cleaning.\(control)"]
+            if hidden {
+                XCTAssertFalse(button.exists, "Hidden inspection control remains accessible: \(control)")
+            } else {
+                XCTAssertTrue(button.waitForExistence(timeout: 2), "Inspection control did not return: \(control)")
+                XCTAssertTrue(button.isHittable, "Restored control is not hittable: \(control)")
+            }
+        }
     }
 
     @MainActor

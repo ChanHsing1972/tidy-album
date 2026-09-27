@@ -138,10 +138,10 @@ struct CleaningView: View {
             }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { toolbar }
-            // The collection view ignores the changing safe area, so hiding
-            // the bottom toolbar after the card lands cannot move the grid.
-            // Navigation chrome remains native and keeps a constant height.
-            .toolbar(showsTimeline ? .hidden : .visible, for: .bottomBar)
+            // Hide the native bars as a unit so inspection also removes their
+            // system backgrounds and accessibility elements.
+            .toolbar(isInspecting ? .hidden : .visible, for: .navigationBar)
+            .toolbar(showsTimeline || isInspecting ? .hidden : .visible, for: .bottomBar)
         }
         .tint(.primary)
         .onDisappear { isExiting = true }
@@ -239,6 +239,7 @@ struct CleaningView: View {
             .opacity(hidesCleaningChrome ? 0 : 1)
             .allowsHitTesting(!hidesCleaningChrome)
             .accessibilityLabel(settings.t("Close"))
+            .accessibilityIdentifier("tidyalbum.cleaning.close")
         }
         ToolbarItem(placement: .principal) {
             ZStack {
@@ -259,6 +260,7 @@ struct CleaningView: View {
             .opacity(hidesCleaningChrome || showsTimelineChrome ? 0 : 1)
             .allowsHitTesting(!hidesCleaningChrome && !showsTimelineChrome)
             .accessibilityLabel(settings.t("Trash"))
+            .accessibilityIdentifier("tidyalbum.cleaning.trash")
         }
         ToolbarItemGroup(placement: .bottomBar) {
             Button { requestUndo() } label: {
@@ -268,6 +270,7 @@ struct CleaningView: View {
             .opacity(hidesCleaningChrome ? 0 : (manager.canUndo ? 1 : 0.35))
             .allowsHitTesting(!hidesCleaningChrome)
             .accessibilityLabel(settings.t("Undo"))
+            .accessibilityIdentifier("tidyalbum.cleaning.undo")
             Spacer()
         }
         if #available(iOS 26.0, *) {
@@ -289,6 +292,7 @@ struct CleaningView: View {
             .opacity(hidesCleaningChrome ? 0 : (currentAsset == nil ? 0.35 : 1))
             .allowsHitTesting(!hidesCleaningChrome)
             .accessibilityLabel(settings.t("Share"))
+            .accessibilityIdentifier("tidyalbum.cleaning.share")
         }
     }
 
@@ -554,6 +558,7 @@ private struct CleaningAssetInfoIslandButton: View {
                     .contentShape(Capsule())
                 }
                 .accessibilityLabel(accessibilityLabel)
+                .accessibilityIdentifier("tidyalbum.cleaning.details")
                 .accessibilityHidden(!isVisible)
                 .disabled(!isVisible)
                 .transition(.opacity)
