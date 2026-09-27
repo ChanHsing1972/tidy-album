@@ -222,7 +222,7 @@ final class TidyAlbumUITests: XCTestCase {
     @MainActor
     func testCleaningPinchGesturesAndDoubleTap() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-settings.cleaningGroupSize", "25"]
+        app.launchArguments += ["-settings.cleaningGroupSize", "25", "-settings.sortOrder", "newestFirst"]
         app.launch()
 
         dismissWelcomeIfNeeded(in: app)
@@ -264,6 +264,7 @@ final class TidyAlbumUITests: XCTestCase {
             "Pinching outward did not fade the surrounding UI"
         )
         XCTAssertGreaterThan(currentCard.frame.width, fittedFrame.width * 1.1, "The photo did not enter inspection")
+        assertInspectionGeometry(currentCard.frame, fittedFrame: fittedFrame)
         assertInspectionChrome(hidden: true, in: app)
         currentCard.pinch(withScale: 0.5, velocity: -1)
         XCTAssertFalse(
@@ -281,10 +282,16 @@ final class TidyAlbumUITests: XCTestCase {
         attachScreenshot(named: "Cleaning - Restored After Inspection", app: app)
 
         // Repeated direct inspections must restore the same controls and geometry.
-        for _ in 0..<2 {
-            currentCard.pinch(withScale: 1.6, velocity: 1)
+        for scale in [1.3, 1.6] {
+            currentCard.pinch(withScale: scale, velocity: 0.3)
             XCTAssertTrue(waitForButtonsToDisappear(in: app, labels: ["详情", "Details"], timeout: 2))
             assertInspectionChrome(hidden: true, in: app)
+            assertInspectionGeometry(currentCard.frame, fittedFrame: fittedFrame)
+            let stage = app.descendants(matching: .any)
+                .matching(identifier: "tidyalbum.cleaning-stage").firstMatch
+            XCTAssertEqual(stage.frame.minY, fittedFrame.minY, accuracy: 2)
+            XCTAssertEqual(stage.frame.height, fittedFrame.height, accuracy: 2)
+            attachScreenshot(named: "Cleaning - Inspection Scale \(scale)", app: app)
             currentCard.pinch(withScale: 0.5, velocity: -1)
             currentCard = try XCTUnwrap(waitForAlignedCurrentCard(in: app, timeout: 3))
             XCTAssertEqual(currentCard.frame.minY, fittedFrame.minY, accuracy: 2)
@@ -292,6 +299,22 @@ final class TidyAlbumUITests: XCTestCase {
             assertInspectionChrome(hidden: false, in: app)
             XCTAssertFalse(timeline.exists)
         }
+    }
+
+    private func assertInspectionGeometry(
+        _ zoomedFrame: CGRect,
+        fittedFrame: CGRect,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        // Toolbar changes must not resize the photo's underlying viewport.
+        // A uniform pinch must scale both page dimensions by the same factor.
+        let scale = zoomedFrame.width / fittedFrame.width
+        XCTAssertEqual(
+            zoomedFrame.height, fittedFrame.height * scale, accuracy: 2,
+            "Inspection chrome changed the photo layout during the pinch",
+            file: file, line: line
+        )
     }
 
     @MainActor private func assertInspectionChrome(hidden: Bool, in app: XCUIApplication) {

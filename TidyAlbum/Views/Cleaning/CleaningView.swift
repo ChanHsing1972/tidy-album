@@ -136,12 +136,13 @@ struct CleaningView: View {
                     .zIndex(2)
                 }
             }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar, .bottomBar)
             .toolbar { toolbar }
-            // Hide the native bars as a unit so inspection also removes their
-            // system backgrounds and accessibility elements.
-            .toolbar(isInspecting ? .hidden : .visible, for: .navigationBar)
-            .toolbar(showsTimeline || isInspecting ? .hidden : .visible, for: .bottomBar)
+            // Inspection hides the controls, not the bars' layout space. Removing
+            // a bar changes the stage's safe area in the middle of the pinch,
+            // refitting the photo and moving the gesture's coordinate origin.
+            .toolbar(.visible, for: .navigationBar)
+            .toolbar(showsTimeline ? .hidden : .visible, for: .bottomBar)
         }
         .tint(.primary)
         .onDisappear { isExiting = true }
@@ -233,14 +234,17 @@ struct CleaningView: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button(action: showsTimelineChrome ? closeTimeline : exitSession) {
-                Label("xmark", systemImage: "xmark")
+            if !hidesCleaningChrome {
+                Button(action: showsTimelineChrome ? closeTimeline : exitSession) {
+                    Label("xmark", systemImage: "xmark")
+                }
+                .accessibilityLabel(settings.t("Close"))
+                .accessibilityIdentifier("tidyalbum.cleaning.close")
+            } else {
+                toolbarPlaceholder
             }
-            .opacity(hidesCleaningChrome ? 0 : 1)
-            .allowsHitTesting(!hidesCleaningChrome)
-            .accessibilityLabel(settings.t("Close"))
-            .accessibilityIdentifier("tidyalbum.cleaning.close")
         }
+        .cleaningBackgroundHidden(hidesCleaningChrome)
         ToolbarItem(placement: .principal) {
             ZStack {
                 Text(timelineDateTitle)
@@ -250,29 +254,38 @@ struct CleaningView: View {
                     .opacity(showsTimelineChrome ? 0 : 1)
             }
             .frame(minWidth: 120)
+            .opacity(hidesCleaningChrome ? 0 : 1)
+            .accessibilityHidden(hidesCleaningChrome)
             .animation(.easeInOut(duration: 0.18), value: showsTimelineChrome)
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button { showsTrash = true } label: {
-                Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+            if !hidesCleaningChrome && !showsTimelineChrome {
+                Button { showsTrash = true } label: {
+                    Label("Trash", systemImage: manager.trashBin.isEmpty ? "trash" : "trash.fill")
+                }
+                .badge(manager.trashBin.count)
+                .accessibilityLabel(settings.t("Trash"))
+                .accessibilityIdentifier("tidyalbum.cleaning.trash")
+            } else {
+                toolbarPlaceholder
             }
-            .badge(manager.trashBin.count)
-            .opacity(hidesCleaningChrome || showsTimelineChrome ? 0 : 1)
-            .allowsHitTesting(!hidesCleaningChrome && !showsTimelineChrome)
-            .accessibilityLabel(settings.t("Trash"))
-            .accessibilityIdentifier("tidyalbum.cleaning.trash")
         }
+        .cleaningBackgroundHidden(hidesCleaningChrome || showsTimelineChrome)
         ToolbarItemGroup(placement: .bottomBar) {
-            Button { requestUndo() } label: {
-                Image(systemName: "arrow.uturn.backward")
+            if !hidesCleaningChrome {
+                Button { requestUndo() } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .disabled(!manager.canUndo)
+                .opacity(manager.canUndo ? 1 : 0.35)
+                .accessibilityLabel(settings.t("Undo"))
+                .accessibilityIdentifier("tidyalbum.cleaning.undo")
+            } else {
+                toolbarPlaceholder
             }
-            .disabled(!manager.canUndo)
-            .opacity(hidesCleaningChrome ? 0 : (manager.canUndo ? 1 : 0.35))
-            .allowsHitTesting(!hidesCleaningChrome)
-            .accessibilityLabel(settings.t("Undo"))
-            .accessibilityIdentifier("tidyalbum.cleaning.undo")
             Spacer()
         }
+        .cleaningBackgroundHidden(hidesCleaningChrome)
         if #available(iOS 26.0, *) {
             ToolbarItem(placement: .bottomBar) { detailsToolbarButton }
                 .sharedBackgroundVisibility(detailsToolbarAsset == nil || hidesCleaningChrome ? .hidden : .automatic)
@@ -281,19 +294,32 @@ struct CleaningView: View {
         }
         ToolbarItemGroup(placement: .bottomBar) {
             Spacer()
-            Button(action: prepareShare) {
-                if isPreparingShare {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "square.and.arrow.up")
+            if !hidesCleaningChrome {
+                Button(action: prepareShare) {
+                    if isPreparingShare {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                    }
                 }
+                .disabled(currentAsset == nil || isPreparingShare)
+                .opacity(currentAsset == nil ? 0.35 : 1)
+                .accessibilityLabel(settings.t("Share"))
+                .accessibilityIdentifier("tidyalbum.cleaning.share")
+            } else {
+                toolbarPlaceholder
             }
-            .disabled(currentAsset == nil || isPreparingShare)
-            .opacity(hidesCleaningChrome ? 0 : (currentAsset == nil ? 0.35 : 1))
-            .allowsHitTesting(!hidesCleaningChrome)
-            .accessibilityLabel(settings.t("Share"))
-            .accessibilityIdentifier("tidyalbum.cleaning.share")
         }
+        .cleaningBackgroundHidden(hidesCleaningChrome)
+    }
+
+    private var toolbarPlaceholder: some View {
+        // Native bar buttons can retain their UIKit representation when only
+        // opacity/accessibilityHidden changes. Remove the action itself while
+        // keeping a noninteractive slot so the bar still reserves its space.
+        Color.clear.frame(width: 28, height: 36)
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
     }
 
     private var detailsToolbarAsset: PHAsset? {
@@ -467,6 +493,17 @@ struct CleaningView: View {
     }
 }
 
+private extension ToolbarContent {
+    @ToolbarContentBuilder
+    func cleaningBackgroundHidden(_ hidden: Bool) -> some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            sharedBackgroundVisibility(hidden ? .hidden : .automatic)
+        } else {
+            self
+        }
+    }
+}
+
 private struct AssetSheetSelection: Identifiable {
     let asset: PHAsset
     var id: String { asset.localIdentifier }
@@ -544,7 +581,7 @@ private struct CleaningAssetInfoIslandButton: View {
         ZStack {
             // Keep toolbar geometry stable while SwiftUI removes the old button.
             Color.clear.frame(height: 44).accessibilityHidden(true)
-            if let asset {
+            if let asset, !isHidden {
                 Button {
                     onSelect(asset)
                 } label: {
